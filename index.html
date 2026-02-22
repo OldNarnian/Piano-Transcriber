@@ -3,20 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Piano Pitch Detector</title>
+    <title>Instant Pitch Detector</title>
     
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
     
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f8f9fa;}
         h2 { color: #333; margin-bottom: 10px;}
-        .controls { display: flex; justify-content: center; gap: 15px; margin-top: 15px; flex-wrap: wrap;}
         
-        button { padding: 12px 24px; font-size: 18px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s;}
-        #startBtn { background-color: #007bff; }
+        .controls { display: flex; justify-content: center; gap: 10px; margin-top: 15px; flex-wrap: wrap; max-width: 90%; margin-left: auto; margin-right: auto;}
+        
+        button { padding: 12px 20px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
+        #startBtn { background-color: #007bff; font-size: 20px; padding: 15px 30px;}
         #startBtn:active { background-color: #0056b3; }
         
         #modeToggle { background-color: #6c757d; display: none; }
+        #instrumentToggle { background-color: #17a2b8; display: none; }
+        
+        .slider-container { margin-top: 20px; display: none; flex-direction: column; align-items: center; font-size: 14px; color: #555;}
+        input[type="range"] { width: 80%; max-width: 300px; margin-top: 8px; }
         
         #noteDisplay { font-size: 35px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
         
@@ -25,11 +30,17 @@
 </head>
 <body>
 
-    <h2>Live Piano Listener</h2>
+    <h2>Live Pitch Listener</h2>
     
     <div class="controls">
         <button id="startBtn">Start Microphone</button>
-        <button id="modeToggle">Mode: Sheet Music (Multi)</button>
+        <button id="modeToggle">Layout: Sheet Music</button>
+        <button id="instrumentToggle">Input: Voice Mode</button>
+    </div>
+
+    <div class="slider-container" id="sliderContainer">
+        <label for="volSlider">Mic Sensitivity Threshold: <strong id="volLabel">0.05</strong></label>
+        <input type="range" id="volSlider" min="0.01" max="0.20" step="0.01" value="0.05">
     </div>
     
     <div id="noteDisplay">--</div>
@@ -44,13 +55,15 @@
         let currentDrawnNote = ""; 
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-        // State Management 
+        // State Management Variables
         let isMultiMode = false;
+        let isVoiceMode = true; // Default to Voice mode since you are singing
+        let volumeThreshold = 0.05;
+        
         let notesHistory = [];
         const NOTES_PER_LINE = 8;
         const LINES_PER_PAGE = 3;
 
-        // NEW: Voice Stabilization Variables
         let pitchBuffer = []; 
         let silenceFrames = 0; 
 
@@ -65,22 +78,40 @@
         }
         drawEmptyStaff();
 
+        // UI Event Listeners
         document.getElementById('modeToggle').addEventListener('click', (e) => {
             isMultiMode = !isMultiMode;
-            if (isMultiMode) {
-                e.target.innerText = "Mode: Single Note";
-                e.target.style.backgroundColor = "#28a745"; 
-            } else {
-                e.target.innerText = "Mode: Sheet Music (Multi)";
-                e.target.style.backgroundColor = "#6c757d"; 
-            }
+            e.target.innerText = isMultiMode ? "Layout: Single Note" : "Layout: Sheet Music";
+            e.target.style.backgroundColor = isMultiMode ? "#28a745" : "#6c757d"; 
             
             notesHistory = []; 
             currentDrawnNote = "";
-            pitchBuffer = []; // Clear stabilization memory on switch
+            pitchBuffer = []; 
             document.getElementById("staff").innerHTML = "";
             if(!isMultiMode) drawEmptyStaff();
         });
+
+        document.getElementById('instrumentToggle').addEventListener('click', (e) => {
+            isVoiceMode = !isVoiceMode;
+            e.target.innerText = isVoiceMode ? "Input: Voice Mode" : "Input: Piano Mode";
+            e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; 
+            pitchBuffer = []; 
+        });
+
+        document.getElementById('volSlider').addEventListener('input', (e) => {
+            volumeThreshold = parseFloat(e.target.value);
+            document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2);
+        });
+
+        function registerNoteAndDraw(note) {
+            let noteName = noteStrings[note % 12];
+            let octave = Math.floor(note / 12) - 1; 
+            
+            if (note >= 21 && note <= 108) {
+                document.getElementById('noteDisplay').innerText = noteName + octave;
+                drawNoteOnStaff(noteName, octave);
+            }
+        }
 
         function drawNoteOnStaff(noteName, octave) {
             let vfNoteString = noteName.toLowerCase() + "/" + octave;
@@ -137,9 +168,7 @@
 
                     let voiceNotes = lineNotesData.map(data => {
                         let vfN = new VF.StaveNote({ keys: [data.keys[0]], duration: "q", clef: lineClef });
-                        if (data.name.includes("#")) {
-                            vfN.addModifier(new VF.Accidental("#"), 0);
-                        }
+                        if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
                         return vfN;
                     });
 
@@ -162,7 +191,7 @@
             let rms = 0;
             for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
             rms = Math.sqrt(rms / SIZE);
-            if (rms < 0.05) return -1; 
+            if (rms < volumeThreshold) return -1; // Now uses the slider value
 
             let r1 = 0, r2 = SIZE - 1, thres = 0.2;
             for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
@@ -194,37 +223,32 @@
             for(let i=0; i<buffer.length; i++) sum += buffer[i]*buffer[i];
             let volume = Math.sqrt(sum/buffer.length);
 
-            if (volume > 0.05) {
-                silenceFrames = 0; // Reset silence timer if audio is detected
-                
+            if (volume > volumeThreshold) {
+                silenceFrames = 0; 
                 let frequency = autoCorrelate(buffer, audioContext.sampleRate);
+                
                 if (frequency !== -1) {
                     let note = noteFromPitch(frequency);
                     
-                    // Add the note to our pitch buffer
-                    pitchBuffer.push(note);
-                    if (pitchBuffer.length > 5) pitchBuffer.shift(); // Keep only the last 5 frames
-                    
-                    // Check if the pitch has been stable for all 5 frames
-                    let isStable = pitchBuffer.length === 5 && pitchBuffer.every(val => val === pitchBuffer[0]);
-
-                    if (isStable) {
-                        let noteName = noteStrings[note % 12];
-                        let octave = Math.floor(note / 12) - 1; 
-                        
-                        if (note >= 21 && note <= 108) {
-                            document.getElementById('noteDisplay').innerText = noteName + octave;
-                            drawNoteOnStaff(noteName, octave);
-                        }
+                    if (isVoiceMode) {
+                        pitchBuffer.push(note);
+                        if (pitchBuffer.length > 5) pitchBuffer.shift(); 
+                        let isStable = pitchBuffer.length === 5 && pitchBuffer.every(val => val === pitchBuffer[0]);
+                        if (isStable) registerNoteAndDraw(note);
+                    } else {
+                        // Piano Mode: Instant drawing, no stability buffer required
+                        registerNoteAndDraw(note);
                     }
                 }
             } else {
                 silenceFrames++;
-                // Only clear the note memory if there has been silence for ~250ms (15 frames)
-                if (silenceFrames > 15) {
+                // Piano mode resets memory faster than Voice mode
+                let requiredSilence = isVoiceMode ? 15 : 5; 
+                
+                if (silenceFrames > requiredSilence) {
                     currentDrawnNote = ""; 
                     document.getElementById('noteDisplay').style.color = "#2c3e50";
-                    pitchBuffer = []; // Clear the pitch history
+                    pitchBuffer = []; 
                 }
             }
         }
@@ -240,8 +264,11 @@
                 microphone.connect(analyser);
                 updatePitch();
                 
+                // Hide Start button, Show UI Controls
                 document.getElementById('startBtn').style.display = 'none';
-                document.getElementById('modeToggle').style.display = 'block';
+                document.getElementById('modeToggle').style.display = 'inline-block';
+                document.getElementById('instrumentToggle').style.display = 'inline-block';
+                document.getElementById('sliderContainer').style.display = 'flex';
             } catch (err) {
                 alert('Microphone access denied or not found.');
             }
