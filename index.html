@@ -2,11 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Instant Piano Pitch Detector</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vexflow/4.2.2/vexflow.global.min.js"></script>
+    
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 100px; }
-        #noteDisplay { font-size: 100px; font-weight: bold; color: #2c3e50; margin-top: 20px;}
-        button { padding: 15px 30px; font-size: 20px; cursor: pointer; border-radius: 8px; }
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f8f9fa;}
+        h2 { color: #333; }
+        #noteDisplay { font-size: 40px; font-weight: bold; color: #2c3e50; margin-top: 10px;}
+        #staff { display: flex; justify-content: center; margin-top: 20px; height: 200px; }
+        button { padding: 15px 30px; font-size: 20px; cursor: pointer; border-radius: 8px; background-color: #007bff; color: white; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button:active { background-color: #0056b3; }
     </style>
 </head>
 <body>
@@ -14,31 +21,80 @@
     <h2>Live Piano Listener</h2>
     <button id="startBtn">Start Microphone</button>
     <div id="noteDisplay">--</div>
+    
+    <div id="staff"></div>
 
     <script>
         let audioContext;
         let analyser;
         let microphone;
         
-        // The 12 notes of the musical scale
+        const VF = Vex.Flow;
+        let currentDrawnNote = ""; // Keeps track of what is on screen to prevent flickering
+
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-        // Formula to convert frequency (Hz) to a MIDI note number
+        // Draw an empty staff when the page first loads
+        function drawEmptyStaff() {
+            const staffDiv = document.getElementById("staff");
+            const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
+            renderer.resize(200, 200);
+            const context = renderer.getContext();
+            const stave = new VF.Stave(10, 40, 150);
+            stave.addClef("treble").setContext(context).draw();
+        }
+        drawEmptyStaff();
+
+        // The Drawing Engine
+        function drawNoteOnStaff(noteName, octave) {
+            // VexFlow format expects lowercase letters and a slash (e.g., c#/4)
+            let vfNoteString = noteName.toLowerCase() + "/" + octave;
+            
+            // Only redraw if the note has actually changed
+            if (currentDrawnNote === vfNoteString) return; 
+            currentDrawnNote = vfNoteString;
+
+            const staffDiv = document.getElementById("staff");
+            staffDiv.innerHTML = ""; // Clear the old SVG
+
+            const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
+            renderer.resize(200, 200);
+            const context = renderer.getContext();
+            
+            const stave = new VF.Stave(10, 40, 150);
+            
+            // Automatically switch between Treble and Bass clef based on the octave
+            const clef = octave >= 4 ? "treble" : "bass";
+            stave.addClef(clef).setContext(context).draw();
+
+            // Create the note
+            let vfNote = new VF.StaveNote({ keys: [vfNoteString], duration: "q", clef: clef });
+            
+            // Add a sharp symbol if the note name contains a '#'
+            if (noteName.includes("#")) {
+                vfNote.addModifier(new VF.Accidental("#"));
+            }
+
+            // Draw it to the screen
+            const voice = new VF.Voice({ num_beats: 1, beat_value: 4 });
+            voice.addTickables([vfNote]);
+            new VF.Formatter().joinVoices([voice]).format([voice], 100);
+            voice.draw(context, stave);
+        }
+
         function noteFromPitch(frequency) {
             const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
             return Math.round(noteNum) + 69;
         }
 
-        // Standard Auto-Correlation Algorithm to find the frequency of a waveform
         function autoCorrelate(buf, sampleRate) {
             let SIZE = buf.length;
             let rms = 0;
             for (let i = 0; i < SIZE; i++) {
-                let val = buf[i];
-                rms += val * val;
+                rms += buf[i] * buf[i];
             }
             rms = Math.sqrt(rms / SIZE);
-            if (rms < 0.01) return -1; // Not enough volume/signal
+            if (rms < 0.05) return -1; // Volume threshold
 
             let r1 = 0, r2 = SIZE - 1, thres = 0.2;
             for (let i = 0; i < SIZE / 2; i++)
@@ -65,26 +121,29 @@
             return sampleRate / T0;
         }
 
-        // The real-time loop
         function updatePitch() {
             requestAnimationFrame(updatePitch);
             let buffer = new Float32Array(analyser.fftSize);
             analyser.getFloatTimeDomainData(buffer);
-            let frequency = autoCorrelate(buffer, audioContext.sampleRate);
             
+            let frequency = autoCorrelate(buffer, audioContext.sampleRate);
             if (frequency !== -1) {
                 let note = noteFromPitch(frequency);
                 let noteName = noteStrings[note % 12];
                 let octave = Math.floor(note / 12) - 1; 
-                document.getElementById('noteDisplay').innerText = noteName + octave;
+                
+                // Only process standard piano keys (A0 to C8)
+                if (note >= 21 && note <= 108) {
+                    document.getElementById('noteDisplay').innerText = noteName + octave;
+                    drawNoteOnStaff(noteName, octave);
+                }
             }
         }
 
-        // Triggered when the user clicks the button
         document.getElementById('startBtn').addEventListener('click', async () => {
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             analyser = audioContext.createAnalyser();
-            analyser.fftSize = 2048; // Resolution of the audio capture
+            analyser.fftSize = 2048; 
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
