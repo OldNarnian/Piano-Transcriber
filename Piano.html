@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Instant Piano Pitch Detector</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin-top: 100px; }
+        #noteDisplay { font-size: 100px; font-weight: bold; color: #2c3e50; margin-top: 20px;}
+        button { padding: 15px 30px; font-size: 20px; cursor: pointer; border-radius: 8px; }
+    </style>
+</head>
+<body>
+
+    <h2>Live Piano Listener</h2>
+    <button id="startBtn">Start Microphone</button>
+    <div id="noteDisplay">--</div>
+
+    <script>
+        let audioContext;
+        let analyser;
+        let microphone;
+        
+        // The 12 notes of the musical scale
+        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+        // Formula to convert frequency (Hz) to a MIDI note number
+        function noteFromPitch(frequency) {
+            const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
+            return Math.round(noteNum) + 69;
+        }
+
+        // Standard Auto-Correlation Algorithm to find the frequency of a waveform
+        function autoCorrelate(buf, sampleRate) {
+            let SIZE = buf.length;
+            let rms = 0;
+            for (let i = 0; i < SIZE; i++) {
+                let val = buf[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / SIZE);
+            if (rms < 0.01) return -1; // Not enough volume/signal
+
+            let r1 = 0, r2 = SIZE - 1, thres = 0.2;
+            for (let i = 0; i < SIZE / 2; i++)
+                if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+            for (let i = 1; i < SIZE / 2; i++)
+                if (Math.abs(buf[SIZE - i]) < thres) { r2 = SIZE - i; break; }
+
+            buf = buf.slice(r1, r2);
+            SIZE = buf.length;
+
+            let c = new Array(SIZE).fill(0);
+            for (let i = 0; i < SIZE; i++) {
+                for (let j = 0; j < SIZE - i; j++) {
+                    c[i] = c[i] + buf[j] * buf[j + i];
+                }
+            }
+
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < SIZE; i++) {
+                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+            }
+            let T0 = maxpos;
+            return sampleRate / T0;
+        }
+
+        // The real-time loop
+        function updatePitch() {
+            requestAnimationFrame(updatePitch);
+            let buffer = new Float32Array(analyser.fftSize);
+            analyser.getFloatTimeDomainData(buffer);
+            let frequency = autoCorrelate(buffer, audioContext.sampleRate);
+            
+            if (frequency !== -1) {
+                let note = noteFromPitch(frequency);
+                let noteName = noteStrings[note % 12];
+                let octave = Math.floor(note / 12) - 1; 
+                document.getElementById('noteDisplay').innerText = noteName + octave;
+            }
+        }
+
+        // Triggered when the user clicks the button
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048; // Resolution of the audio capture
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
+                updatePitch();
+                document.getElementById('startBtn').style.display = 'none';
+            } catch (err) {
+                alert('Microphone access denied or not found.');
+            }
+        });
+    </script>
+</body>
+</html>
