@@ -6,22 +6,34 @@
     <title>Instant Piano Pitch Detector</title>
     
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
-
+    
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f8f9fa;}
-        h2 { color: #333; }
-        #noteDisplay { font-size: 40px; font-weight: bold; color: #2c3e50; margin-top: 10px;}
-        #staff { display: flex; justify-content: center; margin-top: 20px; height: 200px; }
-        button { padding: 15px 30px; font-size: 20px; cursor: pointer; border-radius: 8px; background-color: #007bff; color: white; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        button:active { background-color: #0056b3; }
+        body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f8f9fa;}
+        h2 { color: #333; margin-bottom: 10px;}
+        .controls { display: flex; justify-content: center; gap: 15px; margin-top: 15px; flex-wrap: wrap;}
+        
+        button { padding: 12px 24px; font-size: 18px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s;}
+        #startBtn { background-color: #007bff; }
+        #startBtn:active { background-color: #0056b3; }
+        
+        #modeToggle { background-color: #6c757d; display: none; }
+        
+        #noteDisplay { font-size: 35px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
+        
+        /* Increased height to allow 3 lines to fit comfortably */
+        #staff { display: flex; justify-content: center; margin-top: 15px; min-height: 420px; } 
     </style>
 </head>
 <body>
 
     <h2>Live Piano Listener</h2>
-    <button id="startBtn">Start Microphone</button>
-    <div id="noteDisplay">--</div>
     
+    <div class="controls">
+        <button id="startBtn">Start Microphone</button>
+        <button id="modeToggle">Mode: Sheet Music (Multi)</button>
+    </div>
+    
+    <div id="noteDisplay">--</div>
     <div id="staff"></div>
 
     <script>
@@ -30,13 +42,18 @@
         let microphone;
         
         const VF = Vex.Flow;
-        let currentDrawnNote = ""; // Keeps track of what is on screen to prevent flickering
-
+        let currentDrawnNote = ""; 
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-        // Draw an empty staff when the page first loads
+        // State Management Variables for Multi-Mode
+        let isMultiMode = false;
+        let notesHistory = [];
+        const NOTES_PER_LINE = 8;
+        const LINES_PER_PAGE = 3;
+
         function drawEmptyStaff() {
             const staffDiv = document.getElementById("staff");
+            staffDiv.innerHTML = "";
             const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
             renderer.resize(200, 200);
             const context = renderer.getContext();
@@ -45,42 +62,100 @@
         }
         drawEmptyStaff();
 
+        // The Mode Toggle Logic
+        document.getElementById('modeToggle').addEventListener('click', (e) => {
+            isMultiMode = !isMultiMode;
+            if (isMultiMode) {
+                e.target.innerText = "Mode: Single Note";
+                e.target.style.backgroundColor = "#28a745"; // Green
+            } else {
+                e.target.innerText = "Mode: Sheet Music (Multi)";
+                e.target.style.backgroundColor = "#6c757d"; // Gray
+            }
+            
+            // Wipe the slate clean when switching modes
+            notesHistory = []; 
+            currentDrawnNote = "";
+            document.getElementById("staff").innerHTML = "";
+            if(!isMultiMode) drawEmptyStaff();
+        });
+
         // The Drawing Engine
         function drawNoteOnStaff(noteName, octave) {
-            // VexFlow format expects lowercase letters and a slash (e.g., c#/4)
             let vfNoteString = noteName.toLowerCase() + "/" + octave;
-            
-            // Only redraw if the note has actually changed
-            if (currentDrawnNote === vfNoteString) return; 
-            currentDrawnNote = vfNoteString;
-
-            const staffDiv = document.getElementById("staff");
-            staffDiv.innerHTML = ""; // Clear the old SVG
-
-            const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
-            renderer.resize(200, 200);
-            const context = renderer.getContext();
-            
-            const stave = new VF.Stave(10, 40, 150);
-            
-            // Automatically switch between Treble and Bass clef based on the octave
             const clef = octave >= 4 ? "treble" : "bass";
-            stave.addClef(clef).setContext(context).draw();
 
-            // Create the note
-            let vfNote = new VF.StaveNote({ keys: [vfNoteString], duration: "q", clef: clef });
-            
-            // Add a sharp symbol if the note name contains a '#'
-            if (noteName.includes("#")) {
-                // The '0' explicitly tells it to attach to the first (and only) note 
-                vfNote.addModifier(new VF.Accidental("#"), 0);
+            // ------------- SINGLE NOTE MODE -------------
+            if (!isMultiMode) {
+                if (currentDrawnNote === vfNoteString) return; 
+                currentDrawnNote = vfNoteString;
+
+                const staffDiv = document.getElementById("staff");
+                staffDiv.innerHTML = ""; 
+
+                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
+                renderer.resize(200, 200);
+                const context = renderer.getContext();
+                
+                const stave = new VF.Stave(10, 40, 150);
+                stave.addClef(clef).setContext(context).draw();
+
+                let vfNote = new VF.StaveNote({ keys: [vfNoteString], duration: "q", clef: clef });
+                if (noteName.includes("#")) vfNote.addModifier(new VF.Accidental("#"), 0);
+
+                // setStrict(false) is crucial here to prevent timing errors
+                const voice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false);
+                voice.addTickables([vfNote]);
+                new VF.Formatter().joinVoices([voice]).format([voice], 100);
+                voice.draw(context, stave);
+                
+            } else {
+                // ------------- SHEET MUSIC MODE -------------
+                if (currentDrawnNote === vfNoteString) return; 
+                currentDrawnNote = vfNoteString;
+
+                notesHistory.push({ keys: [vfNoteString], clef: clef, name: noteName });
+
+                // Page Flip check
+                if (notesHistory.length > NOTES_PER_LINE * LINES_PER_PAGE) {
+                    notesHistory = [ notesHistory[notesHistory.length - 1] ];
+                }
+
+                const staffDiv = document.getElementById("staff");
+                staffDiv.innerHTML = ""; 
+
+                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
+                // Canvas height increases to fit 3 lines
+                renderer.resize(400, LINES_PER_PAGE * 120 + 40); 
+                const context = renderer.getContext();
+
+                // Loop through and draw each line
+                for (let i = 0; i < LINES_PER_PAGE; i++) {
+                    let startIndex = i * NOTES_PER_LINE;
+                    if (startIndex >= notesHistory.length) break;
+
+                    let lineNotesData = notesHistory.slice(startIndex, startIndex + NOTES_PER_LINE);
+                    let lineClef = lineNotesData[0].clef; // The clef is set by the first note on the line
+
+                    // Push each new stave down by 120 pixels
+                    let stave = new VF.Stave(10, 40 + (i * 120), 350);
+                    stave.addClef(lineClef).setContext(context).draw();
+
+                    let voiceNotes = lineNotesData.map(data => {
+                        let vfN = new VF.StaveNote({ keys: [data.keys[0]], duration: "q", clef: lineClef });
+                        if (data.name.includes("#")) {
+                            vfN.addModifier(new VF.Accidental("#"), 0);
+                        }
+                        return vfN;
+                    });
+
+                    const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false);
+                    voice.addTickables(voiceNotes);
+                    
+                    new VF.Formatter().joinVoices([voice]).format([voice], 300);
+                    voice.draw(context, stave);
+                }
             }
-
-            // Draw it to the screen
-            const voice = new VF.Voice({ num_beats: 1, beat_value: 4 });
-            voice.addTickables([vfNote]);
-            new VF.Formatter().joinVoices([voice]).format([voice], 100);
-            voice.draw(context, stave);
         }
 
         function noteFromPitch(frequency) {
@@ -95,7 +170,7 @@
                 rms += buf[i] * buf[i];
             }
             rms = Math.sqrt(rms / SIZE);
-            if (rms < 0.05) return -1; // Volume threshold
+            if (rms < 0.05) return -1; 
 
             let r1 = 0, r2 = SIZE - 1, thres = 0.2;
             for (let i = 0; i < SIZE / 2; i++)
@@ -127,17 +202,27 @@
             let buffer = new Float32Array(analyser.fftSize);
             analyser.getFloatTimeDomainData(buffer);
             
-            let frequency = autoCorrelate(buffer, audioContext.sampleRate);
-            if (frequency !== -1) {
-                let note = noteFromPitch(frequency);
-                let noteName = noteStrings[note % 12];
-                let octave = Math.floor(note / 12) - 1; 
-                
-                // Only process standard piano keys (A0 to C8)
-                if (note >= 21 && note <= 108) {
-                    document.getElementById('noteDisplay').innerText = noteName + octave;
-                    drawNoteOnStaff(noteName, octave);
+            // Volume threshold check
+            let sum = 0;
+            for(let i=0; i<buffer.length; i++) sum += buffer[i]*buffer[i];
+            let volume = Math.sqrt(sum/buffer.length);
+
+            if (volume > 0.05) {
+                let frequency = autoCorrelate(buffer, audioContext.sampleRate);
+                if (frequency !== -1) {
+                    let note = noteFromPitch(frequency);
+                    let noteName = noteStrings[note % 12];
+                    let octave = Math.floor(note / 12) - 1; 
+                    
+                    if (note >= 21 && note <= 108) {
+                        document.getElementById('noteDisplay').innerText = noteName + octave;
+                        drawNoteOnStaff(noteName, octave);
+                    }
                 }
+            } else {
+                // When the room goes quiet, reset the memory so repeated strikes of the same note are registered
+                currentDrawnNote = ""; 
+                document.getElementById('noteDisplay').style.color = "#2c3e50";
             }
         }
 
@@ -151,7 +236,10 @@
                 microphone = audioContext.createMediaStreamSource(stream);
                 microphone.connect(analyser);
                 updatePitch();
+                
+                // Hide Start button, Show Toggle button
                 document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('modeToggle').style.display = 'block';
             } catch (err) {
                 alert('Microphone access denied or not found.');
             }
