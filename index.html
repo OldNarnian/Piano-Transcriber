@@ -72,7 +72,8 @@
             
             // Add a sharp symbol if the note name contains a '#'
             if (noteName.includes("#")) {
-                vfNote.addModifier(new VF.Accidental("#"));
+                // The '0' explicitly tells it to attach to the first (and only) note 
+                vfNote.addModifier(new VF.Accidental("#"), 0);
             }
 
             // Draw it to the screen
@@ -158,4 +159,3 @@
     </script>
 </body>
 </html>
-
