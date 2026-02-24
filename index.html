@@ -18,32 +18,23 @@
         #startBtn { background-color: #007bff; font-size: 20px; padding: 15px 30px;}
         #startBtn:active { background-color: #0056b3; }
         
-        /* Initial Hidden States */
-        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn, #pdfBtn { display: none; }
+        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn, #pdfBtn, #rhythmControls { display: none; }
         
         #modeToggle { background-color: #6c757d; }
         #instrumentToggle { background-color: #17a2b8; }
         #sourceToggle { background-color: #fd7e14; }
         #clearBtn { background-color: #dc3545; }
-        #pdfBtn { background-color: #6f42c1; } /* Purple for PDF */
+        #pdfBtn { background-color: #6f42c1; }
         
-        .slider-container { margin-top: 20px; display: none; flex-direction: column; align-items: center; font-size: 14px; color: #555;}
-        input[type="range"] { width: 80%; max-width: 300px; margin-top: 8px; }
+        .settings-panel { margin-top: 20px; display: flex; flex-direction: column; align-items: center; font-size: 14px; color: #555; background: #e9ecef; padding: 15px; border-radius: 8px; max-width: 400px; margin-left: auto; margin-right: auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);}
+        input[type="range"] { width: 100%; margin-top: 8px; margin-bottom: 15px; }
+        select { padding: 5px; border-radius: 5px; border: 1px solid #ccc; width: 100%; font-size: 16px;}
         
         #noteDisplay { font-size: 35px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
         
-        /* New Wrapper to handle the infinite scrolling gracefully */
         .staff-wrapper {
-            width: 95%;
-            margin: 15px auto;
-            overflow-x: auto;
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-            min-height: 250px;
-            white-space: nowrap;
+            width: 95%; margin: 15px auto; overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); min-height: 250px; white-space: nowrap;
         }
-        
         #staff { display: inline-block; padding: 10px; } 
     </style>
 </head>
@@ -60,9 +51,23 @@
         <button id="clearBtn">Clear Staff</button>
     </div>
 
-    <div class="slider-container" id="sliderContainer">
-        <label for="volSlider">Mic Sensitivity Threshold: <strong id="volLabel">0.05</strong></label>
-        <input type="range" id="volSlider" min="0.01" max="0.20" step="0.01" value="0.05">
+    <div class="settings-panel" id="rhythmControls">
+        <div id="sliderContainer" style="width: 100%;">
+            <label for="volSlider">Mic Sensitivity: <strong id="volLabel">0.05</strong></label>
+            <input type="range" id="volSlider" min="0.01" max="0.20" step="0.01" value="0.05">
+        </div>
+        
+        <label for="bpmSlider">Goal Tempo (BPM): <strong id="bpmLabel">120</strong></label>
+        <input type="range" id="bpmSlider" min="40" max="240" step="1" value="120">
+        
+        <label for="quantSelect">Note Specificity (Quantization):</label>
+        <select id="quantSelect">
+            <option value="4">Whole Note (Lowest)</option>
+            <option value="2">Half Note</option>
+            <option value="1">Quarter Note</option>
+            <option value="0.5">8th Note</option>
+            <option value="0.25" selected>16th Note (Highest)</option>
+        </select>
     </div>
     
     <div id="noteDisplay">--</div>
@@ -77,19 +82,26 @@
         let microphone;
         
         const VF = Vex.Flow;
-        let currentDrawnNote = ""; 
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
-        // State Management Variables
-        let layoutMode = 'page'; // 'page', 'scroll', or 'single'
+        // State Management 
+        let layoutMode = 'page'; 
         let isVoiceMode = true; 
         let inputSource = 'mic'; 
-        let volumeThreshold = 0.05;
         
+        // Settings State
+        let volumeThreshold = 0.05;
+        let targetBPM = 120;
+        let minDurationBeats = 0.25; 
+        
+        // Engine State
         let notesHistory = [];
+        let activeNoteName = "";
+        let activeNoteStartTime = 0;
+        let activeNoteIndex = -1;
+
         const NOTES_PER_LINE = 8;
         const LINES_PER_PAGE = 3;
-
         let pitchBuffer = []; 
         let silenceFrames = 0; 
 
@@ -106,16 +118,25 @@
 
         // ---------------- UI EVENT LISTENERS ----------------
         
+        document.getElementById('bpmSlider').addEventListener('input', (e) => {
+            targetBPM = parseInt(e.target.value);
+            document.getElementById('bpmLabel').innerText = targetBPM;
+        });
+
+        document.getElementById('quantSelect').addEventListener('change', (e) => {
+            minDurationBeats = parseFloat(e.target.value);
+        });
+
         document.getElementById('clearBtn').addEventListener('click', () => {
             notesHistory = []; 
-            currentDrawnNote = "";
+            activeNoteName = "";
+            activeNoteIndex = -1;
             pitchBuffer = []; 
             document.getElementById("staff").innerHTML = "";
             drawEmptyStaff();
             document.getElementById('noteDisplay').innerText = "--";
         });
 
-        // The new 3-way toggle logic
         document.getElementById('modeToggle').addEventListener('click', (e) => {
             if (layoutMode === 'page') {
                 layoutMode = 'scroll';
@@ -153,7 +174,6 @@
                     inputSource = 'midi';
                     e.target.innerText = "Source: USB MIDI";
                     e.target.style.backgroundColor = "#8e44ad"; 
-                    
                     document.getElementById('sliderContainer').style.display = 'none';
                     document.getElementById('instrumentToggle').style.display = 'none';
                 } catch (err) {
@@ -163,8 +183,7 @@
                 inputSource = 'mic';
                 e.target.innerText = "Source: Microphone";
                 e.target.style.backgroundColor = "#fd7e14"; 
-                
-                document.getElementById('sliderContainer').style.display = 'flex';
+                document.getElementById('sliderContainer').style.display = 'block';
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
             }
             document.getElementById('clearBtn').click();
@@ -175,19 +194,35 @@
             document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2);
         });
 
-        // Export to PDF Logic
         document.getElementById('pdfBtn').addEventListener('click', () => {
             const element = document.getElementById('staff');
-            const opt = {
-                margin:       0.5,
-                filename:     'piano-transcription.pdf',
-                image:        { type: 'jpeg', quality: 0.98 },
-                html2canvas:  { scale: 2 },
-                jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
-            };
-            // Call html2pdf, pass in our SVG wrapper, and save
+            const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } };
             html2pdf().set(opt).from(element).save();
         });
+
+        // ---------------- RHYTHM MATH ENGINE ----------------
+
+        function calculateVexFlowDuration(elapsedBeats) {
+            // Filter available durations based on user's specificity setting
+            const allowed = [4, 2, 1, 0.5, 0.25].filter(b => b >= minDurationBeats);
+            if (allowed.length === 0) allowed.push(minDurationBeats);
+
+            // Find the closest mathematical match
+            let closest = allowed[0];
+            let minDiff = Math.abs(elapsedBeats - closest);
+            for(let i = 1; i < allowed.length; i++) {
+                let diff = Math.abs(elapsedBeats - allowed[i]);
+                if(diff < minDiff) { minDiff = diff; closest = allowed[i]; }
+            }
+
+            // Convert raw math to VexFlow string formats
+            if (closest === 4) return "w";   // Whole
+            if (closest === 2) return "h";   // Half
+            if (closest === 1) return "q";   // Quarter
+            if (closest === 0.5) return "8"; // 8th
+            if (closest === 0.25) return "16"; // 16th
+            return "q"; 
+        }
 
         // ---------------- MIDI ENGINE ----------------
 
@@ -198,8 +233,20 @@
             let note = midiMessage.data[1];
             let velocity = (midiMessage.data.length > 2) ? midiMessage.data[2] : 0;
             
+            let noteName = noteStrings[note % 12];
+            let octave = Math.floor(note / 12) - 1; 
+            let vfNoteString = noteName.toLowerCase() + "/" + octave;
+
+            // Note On
             if (command >= 144 && command <= 159 && velocity > 0) {
                 registerNoteAndDraw(note);
+            }
+            
+            // Note Off (128-143 is Note Off. 144-159 with velocity 0 is also Note Off)
+            if ((command >= 128 && command <= 143) || (command >= 144 && command <= 159 && velocity === 0)) {
+                if (activeNoteName === vfNoteString) {
+                    activeNoteName = ""; // Stop the stopwatch for this note
+                }
             }
         }
 
@@ -210,32 +257,60 @@
             let octave = Math.floor(note / 12) - 1; 
             
             if (note >= 21 && note <= 108) {
+                let vfNoteString = noteName.toLowerCase() + "/" + octave;
                 document.getElementById('noteDisplay').innerText = noteName + octave;
-                drawNoteOnStaff(noteName, octave);
+                
+                // If this is a NEW note
+                if (activeNoteName !== vfNoteString) {
+                    activeNoteName = vfNoteString;
+                    activeNoteStartTime = Date.now();
+                    
+                    const clef = octave >= 4 ? "treble" : "bass";
+                    let initialDur = calculateVexFlowDuration(0); // Start with minimum allowed length
+                    
+                    let newNoteData = { keys: [vfNoteString], clef: clef, name: noteName, duration: initialDur };
+                    
+                    if (layoutMode === 'single') {
+                        notesHistory = [newNoteData];
+                    } else {
+                        notesHistory.push(newNoteData);
+                    }
+                    
+                    activeNoteIndex = notesHistory.length - 1;
+                    renderStaff();
+                } 
+                // If the SAME note is still being held down
+                else {
+                    let elapsedMs = Date.now() - activeNoteStartTime;
+                    let beatsElapsed = elapsedMs * (targetBPM / 60000);
+                    let newDur = calculateVexFlowDuration(beatsElapsed);
+                    
+                    // Update and Redraw only if the duration mathematically crosses a threshold
+                    if (notesHistory[activeNoteIndex].duration !== newDur) {
+                        notesHistory[activeNoteIndex].duration = newDur;
+                        renderStaff();
+                    }
+                }
             }
         }
 
-        function drawNoteOnStaff(noteName, octave) {
-            let vfNoteString = noteName.toLowerCase() + "/" + octave;
-            const clef = octave >= 4 ? "treble" : "bass";
+        function renderStaff() {
+            if (notesHistory.length === 0) return;
+
+            const staffDiv = document.getElementById("staff");
+            staffDiv.innerHTML = ""; 
 
             if (layoutMode === 'single') {
-                // SINGLE NOTE MODE
-                if (currentDrawnNote === vfNoteString) return; 
-                currentDrawnNote = vfNoteString;
-
-                const staffDiv = document.getElementById("staff");
-                staffDiv.innerHTML = ""; 
-
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(200, 200);
                 const context = renderer.getContext();
                 
+                let data = notesHistory[0];
                 const stave = new VF.Stave(10, 40, 150);
-                stave.addClef(clef).setContext(context).draw();
+                stave.addClef(data.clef).setContext(context).draw();
 
-                let vfNote = new VF.StaveNote({ keys: [vfNoteString], duration: "q", clef: clef });
-                if (noteName.includes("#")) vfNote.addModifier(new VF.Accidental("#"), 0);
+                let vfNote = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: data.clef });
+                if (data.name.includes("#")) vfNote.addModifier(new VF.Accidental("#"), 0);
 
                 const voice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false);
                 voice.addTickables([vfNote]);
@@ -243,57 +318,37 @@
                 voice.draw(context, stave);
                 
             } else if (layoutMode === 'scroll') {
-                // HORIZONTAL SCROLL MODE
-                if (currentDrawnNote === vfNoteString && inputSource === 'mic') return; 
-                currentDrawnNote = vfNoteString;
-
-                notesHistory.push({ keys: [vfNoteString], clef: clef, name: noteName });
-
-                const staffDiv = document.getElementById("staff");
-                staffDiv.innerHTML = ""; 
-
-                // Dynamically widen the canvas based on note count
                 let dynamicWidth = Math.max(300, notesHistory.length * 55 + 50);
-
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(dynamicWidth, 200); 
                 const context = renderer.getContext();
 
-                // Lock the clef to the first note played to prevent disjointed reading
                 let lineClef = notesHistory[0].clef; 
-
                 let stave = new VF.Stave(10, 40, dynamicWidth - 20);
                 stave.addClef(lineClef).setContext(context).draw();
 
                 let voiceNotes = notesHistory.map(data => {
-                    let vfN = new VF.StaveNote({ keys: [data.keys[0]], duration: "q", clef: lineClef });
+                    let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
                     if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
                     return vfN;
                 });
 
                 const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false);
                 voice.addTickables(voiceNotes);
-                
                 new VF.Formatter().joinVoices([voice]).format([voice], dynamicWidth - 80);
                 voice.draw(context, stave);
 
-                // Auto-scroll the wrapper to keep the newest note visible
                 const wrapper = document.getElementById("staffWrapper");
                 wrapper.scrollLeft = wrapper.scrollWidth;
 
             } else {
                 // PAGE (GRID) MODE
-                if (currentDrawnNote === vfNoteString && inputSource === 'mic') return; 
-                currentDrawnNote = vfNoteString;
-
-                notesHistory.push({ keys: [vfNoteString], clef: clef, name: noteName });
-
-                if (notesHistory.length > NOTES_PER_LINE * LINES_PER_PAGE) {
-                    notesHistory = [ notesHistory[notesHistory.length - 1] ];
+                let renderHistory = [...notesHistory];
+                if (renderHistory.length > NOTES_PER_LINE * LINES_PER_PAGE) {
+                    renderHistory = [ renderHistory[renderHistory.length - 1] ];
+                    notesHistory = renderHistory;
+                    activeNoteIndex = 0;
                 }
-
-                const staffDiv = document.getElementById("staff");
-                staffDiv.innerHTML = ""; 
 
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(400, LINES_PER_PAGE * 120 + 40); 
@@ -301,16 +356,16 @@
 
                 for (let i = 0; i < LINES_PER_PAGE; i++) {
                     let startIndex = i * NOTES_PER_LINE;
-                    if (startIndex >= notesHistory.length) break;
+                    if (startIndex >= renderHistory.length) break;
 
-                    let lineNotesData = notesHistory.slice(startIndex, startIndex + NOTES_PER_LINE);
+                    let lineNotesData = renderHistory.slice(startIndex, startIndex + NOTES_PER_LINE);
                     let lineClef = lineNotesData[0].clef; 
 
                     let stave = new VF.Stave(10, 40 + (i * 120), 350);
                     stave.addClef(lineClef).setContext(context).draw();
 
                     let voiceNotes = lineNotesData.map(data => {
-                        let vfN = new VF.StaveNote({ keys: [data.keys[0]], duration: "q", clef: lineClef });
+                        let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
                         if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
                         return vfN;
                     });
@@ -392,7 +447,7 @@
                 let requiredSilence = isVoiceMode ? 15 : 5; 
                 
                 if (silenceFrames > requiredSilence) {
-                    currentDrawnNote = ""; 
+                    activeNoteName = ""; // Stop the microphone stopwatch!
                     document.getElementById('noteDisplay').style.color = "#2c3e50";
                     pitchBuffer = []; 
                 }
@@ -416,7 +471,7 @@
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
                 document.getElementById('pdfBtn').style.display = 'inline-block';
                 document.getElementById('clearBtn').style.display = 'inline-block';
-                document.getElementById('sliderContainer').style.display = 'flex';
+                document.getElementById('rhythmControls').style.display = 'flex';
             } catch (err) {
                 alert('Microphone access denied or not found.');
             }
