@@ -3,22 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Pitch Detector</title>
+    <title>Instant Pitch & MIDI Detector</title>
     
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
     
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 30px; background-color: #f8f9fa;}
+        body { font-family: sans-serif; text-align: center; margin-top: 20px; background-color: #f8f9fa;}
         h2 { color: #333; margin-bottom: 10px;}
         
-        .controls { display: flex; justify-content: center; gap: 10px; margin-top: 15px; flex-wrap: wrap; max-width: 90%; margin-left: auto; margin-right: auto;}
+        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 15px; flex-wrap: wrap; max-width: 95%; margin-left: auto; margin-right: auto;}
         
-        button { padding: 12px 20px; font-size: 16px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
+        button { padding: 10px 16px; font-size: 15px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
         #startBtn { background-color: #007bff; font-size: 20px; padding: 15px 30px;}
         #startBtn:active { background-color: #0056b3; }
         
-        #modeToggle { background-color: #6c757d; display: none; }
-        #instrumentToggle { background-color: #17a2b8; display: none; }
+        /* Initial Hidden States */
+        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn { display: none; }
+        
+        #modeToggle { background-color: #6c757d; }
+        #instrumentToggle { background-color: #17a2b8; }
+        #sourceToggle { background-color: #fd7e14; }
+        #clearBtn { background-color: #dc3545; }
         
         .slider-container { margin-top: 20px; display: none; flex-direction: column; align-items: center; font-size: 14px; color: #555;}
         input[type="range"] { width: 80%; max-width: 300px; margin-top: 8px; }
@@ -30,12 +35,14 @@
 </head>
 <body>
 
-    <h2>Live Pitch Listener</h2>
+    <h2>Live Piano Transcription</h2>
     
     <div class="controls">
-        <button id="startBtn">Start Microphone</button>
+        <button id="startBtn">Start Application</button>
+        <button id="sourceToggle">Source: Microphone</button>
         <button id="modeToggle">Layout: Sheet Music</button>
         <button id="instrumentToggle">Input: Voice Mode</button>
+        <button id="clearBtn">Clear Staff</button>
     </div>
 
     <div class="slider-container" id="sliderContainer">
@@ -57,7 +64,8 @@
 
         // State Management Variables
         let isMultiMode = false;
-        let isVoiceMode = true; // Default to Voice mode since you are singing
+        let isVoiceMode = true; 
+        let inputSource = 'mic'; // 'mic' or 'midi'
         let volumeThreshold = 0.05;
         
         let notesHistory = [];
@@ -78,17 +86,22 @@
         }
         drawEmptyStaff();
 
-        // UI Event Listeners
-        document.getElementById('modeToggle').addEventListener('click', (e) => {
-            isMultiMode = !isMultiMode;
-            e.target.innerText = isMultiMode ? "Layout: Single Note" : "Layout: Sheet Music";
-            e.target.style.backgroundColor = isMultiMode ? "#28a745" : "#6c757d"; 
-            
+        // ---------------- UI EVENT LISTENERS ----------------
+        
+        document.getElementById('clearBtn').addEventListener('click', () => {
             notesHistory = []; 
             currentDrawnNote = "";
             pitchBuffer = []; 
             document.getElementById("staff").innerHTML = "";
-            if(!isMultiMode) drawEmptyStaff();
+            drawEmptyStaff();
+            document.getElementById('noteDisplay').innerText = "--";
+        });
+
+        document.getElementById('modeToggle').addEventListener('click', (e) => {
+            isMultiMode = !isMultiMode;
+            e.target.innerText = isMultiMode ? "Layout: Single Note" : "Layout: Sheet Music";
+            e.target.style.backgroundColor = isMultiMode ? "#28a745" : "#6c757d"; 
+            document.getElementById('clearBtn').click(); // Auto-clear on switch
         });
 
         document.getElementById('instrumentToggle').addEventListener('click', (e) => {
@@ -98,10 +111,60 @@
             pitchBuffer = []; 
         });
 
+        document.getElementById('sourceToggle').addEventListener('click', async (e) => {
+            if (inputSource === 'mic') {
+                // Try to switch to MIDI
+                try {
+                    const midiAccess = await navigator.requestMIDIAccess();
+                    for (let input of midiAccess.inputs.values()) {
+                        input.onmidimessage = getMIDIMessage;
+                    }
+                    inputSource = 'midi';
+                    e.target.innerText = "Source: USB MIDI";
+                    e.target.style.backgroundColor = "#8e44ad"; // Purple
+                    
+                    // Hide mic-specific controls for a cleaner UI
+                    document.getElementById('sliderContainer').style.display = 'none';
+                    document.getElementById('instrumentToggle').style.display = 'none';
+                    
+                } catch (err) {
+                    alert("MIDI could not be accessed. Your browser might not support it, or no keyboard is connected.");
+                }
+            } else {
+                // Switch back to Mic
+                inputSource = 'mic';
+                e.target.innerText = "Source: Microphone";
+                e.target.style.backgroundColor = "#fd7e14"; // Orange
+                
+                // Bring back mic controls
+                document.getElementById('sliderContainer').style.display = 'flex';
+                document.getElementById('instrumentToggle').style.display = 'inline-block';
+            }
+            document.getElementById('clearBtn').click();
+        });
+
         document.getElementById('volSlider').addEventListener('input', (e) => {
             volumeThreshold = parseFloat(e.target.value);
             document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2);
         });
+
+        // ---------------- MIDI ENGINE ----------------
+
+        function getMIDIMessage(midiMessage) {
+            if (inputSource !== 'midi') return;
+            
+            let command = midiMessage.data[0];
+            let note = midiMessage.data[1];
+            let velocity = (midiMessage.data.length > 2) ? midiMessage.data[2] : 0;
+            
+            // Commands 144 to 159 are "Note On" across the 16 MIDI channels
+            if (command >= 144 && command <= 159 && velocity > 0) {
+                // MIDI is perfectly digital, so we bypass all stability buffers
+                registerNoteAndDraw(note);
+            }
+        }
+
+        // ---------------- DRAWING ENGINE ----------------
 
         function registerNoteAndDraw(note) {
             let noteName = noteStrings[note % 12];
@@ -140,7 +203,7 @@
                 voice.draw(context, stave);
                 
             } else {
-                if (currentDrawnNote === vfNoteString) return; 
+                if (currentDrawnNote === vfNoteString && inputSource === 'mic') return; 
                 currentDrawnNote = vfNoteString;
 
                 notesHistory.push({ keys: [vfNoteString], clef: clef, name: noteName });
@@ -181,6 +244,8 @@
             }
         }
 
+        // ---------------- AUDIO ENGINE ----------------
+
         function noteFromPitch(frequency) {
             const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
             return Math.round(noteNum) + 69;
@@ -191,7 +256,7 @@
             let rms = 0;
             for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
             rms = Math.sqrt(rms / SIZE);
-            if (rms < volumeThreshold) return -1; // Now uses the slider value
+            if (rms < volumeThreshold) return -1; 
 
             let r1 = 0, r2 = SIZE - 1, thres = 0.2;
             for (let i = 0; i < SIZE / 2; i++) if (Math.abs(buf[i]) < thres) { r1 = i; break; }
@@ -216,6 +281,10 @@
 
         function updatePitch() {
             requestAnimationFrame(updatePitch);
+            
+            // Skip microphone math entirely if we are using USB MIDI
+            if (inputSource === 'midi') return; 
+
             let buffer = new Float32Array(analyser.fftSize);
             analyser.getFloatTimeDomainData(buffer);
             
@@ -236,13 +305,11 @@
                         let isStable = pitchBuffer.length === 5 && pitchBuffer.every(val => val === pitchBuffer[0]);
                         if (isStable) registerNoteAndDraw(note);
                     } else {
-                        // Piano Mode: Instant drawing, no stability buffer required
                         registerNoteAndDraw(note);
                     }
                 }
             } else {
                 silenceFrames++;
-                // Piano mode resets memory faster than Voice mode
                 let requiredSilence = isVoiceMode ? 15 : 5; 
                 
                 if (silenceFrames > requiredSilence) {
@@ -264,10 +331,12 @@
                 microphone.connect(analyser);
                 updatePitch();
                 
-                // Hide Start button, Show UI Controls
+                // Unhide the main UI
                 document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('sourceToggle').style.display = 'inline-block';
                 document.getElementById('modeToggle').style.display = 'inline-block';
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
+                document.getElementById('clearBtn').style.display = 'inline-block';
                 document.getElementById('sliderContainer').style.display = 'flex';
             } catch (err) {
                 alert('Microphone access denied or not found.');
@@ -276,3 +345,4 @@
     </script>
 </body>
 </html>
+
