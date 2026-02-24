@@ -28,9 +28,9 @@
         
         .settings-panel { margin-top: 20px; display: flex; flex-direction: column; align-items: center; font-size: 14px; color: #555; background: #e9ecef; padding: 15px; border-radius: 8px; max-width: 400px; margin-left: auto; margin-right: auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);}
         input[type="range"] { width: 100%; margin-top: 8px; margin-bottom: 15px; }
-        select { padding: 5px; border-radius: 5px; border: 1px solid #ccc; width: 100%; font-size: 16px;}
+        select { padding: 5px; border-radius: 5px; border: 1px solid #ccc; width: 100%; font-size: 16px; margin-bottom: 15px;}
         
-        #noteDisplay { font-size: 35px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
+        #noteDisplay { font-size: 30px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
         
         .staff-wrapper {
             width: 95%; margin: 15px auto; overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); min-height: 250px; white-space: nowrap;
@@ -68,6 +68,21 @@
             <option value="0.5">8th Note</option>
             <option value="0.25" selected>16th Note (Highest)</option>
         </select>
+
+        <label for="keySelect">Song Key Signature:</label>
+        <select id="keySelect">
+            <option value="C" selected>C Major (No Sharps/Flats)</option>
+            <option value="G">G Major (1 Sharp)</option>
+            <option value="D">D Major (2 Sharps)</option>
+            <option value="A">A Major (3 Sharps)</option>
+            <option value="E">E Major (4 Sharps)</option>
+            <option value="B">B Major (5 Sharps)</option>
+            <option value="F">F Major (1 Flat)</option>
+            <option value="Bb">Bb Major (2 Flats)</option>
+            <option value="Eb">Eb Major (3 Flats)</option>
+            <option value="Ab">Ab Major (4 Flats)</option>
+            <option value="Db">Db Major (5 Flats)</option>
+        </select>
     </div>
     
     <div id="noteDisplay">--</div>
@@ -82,23 +97,45 @@
         let microphone;
         
         const VF = Vex.Flow;
-        const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        
+        // Music Theory Engine
+        const notesSharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const notesFlat  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
+        
+        const keySignatures = {
+            "C":  [],
+            "G":  ["F#"],
+            "D":  ["F#", "C#"],
+            "A":  ["F#", "C#", "G#"],
+            "E":  ["F#", "C#", "G#", "D#"],
+            "B":  ["F#", "C#", "G#", "D#", "A#"],
+            "F":  ["Bb"],
+            "Bb": ["Bb", "Eb"],
+            "Eb": ["Bb", "Eb", "Ab"],
+            "Ab": ["Bb", "Eb", "Ab", "Db"],
+            "Db": ["Bb", "Eb", "Ab", "Db", "Gb"]
+        };
 
         // State Management 
         let layoutMode = 'page'; 
         let isVoiceMode = true; 
         let inputSource = 'mic'; 
         
-        // Settings State
         let volumeThreshold = 0.05;
         let targetBPM = 120;
         let minDurationBeats = 0.25; 
         
+        let currentKey = "C";
+        let currentNoteStrings = notesSharp;
+        
         // Engine State
         let notesHistory = [];
-        let activeNoteName = "";
+        let activeNoteName = ""; 
         let activeNoteStartTime = 0;
         let activeNoteIndex = -1;
+        
+        let activeMidiNotes = new Set();
+        let chordRenderTimer = null;
 
         const NOTES_PER_LINE = 8;
         const LINES_PER_PAGE = 3;
@@ -112,12 +149,19 @@
             renderer.resize(200, 200);
             const context = renderer.getContext();
             const stave = new VF.Stave(10, 40, 150);
-            stave.addClef("treble").setContext(context).draw();
+            stave.addClef("treble").addKeySignature(currentKey).setContext(context).draw();
         }
         drawEmptyStaff();
 
         // ---------------- UI EVENT LISTENERS ----------------
         
+        document.getElementById('keySelect').addEventListener('change', (e) => {
+            currentKey = e.target.value;
+            let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"];
+            currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp;
+            document.getElementById('clearBtn').click(); 
+        });
+
         document.getElementById('bpmSlider').addEventListener('input', (e) => {
             targetBPM = parseInt(e.target.value);
             document.getElementById('bpmLabel').innerText = targetBPM;
@@ -131,6 +175,7 @@
             notesHistory = []; 
             activeNoteName = "";
             activeNoteIndex = -1;
+            activeMidiNotes.clear();
             pitchBuffer = []; 
             document.getElementById("staff").innerHTML = "";
             drawEmptyStaff();
@@ -141,18 +186,15 @@
             if (layoutMode === 'page') {
                 layoutMode = 'scroll';
                 e.target.innerText = "Layout: Horizontal Scroll";
-                e.target.style.backgroundColor = "#ffc107"; 
-                e.target.style.color = "#000";
+                e.target.style.backgroundColor = "#ffc107"; e.target.style.color = "#000";
             } else if (layoutMode === 'scroll') {
                 layoutMode = 'single';
                 e.target.innerText = "Layout: Single Note";
-                e.target.style.backgroundColor = "#28a745"; 
-                e.target.style.color = "#fff";
+                e.target.style.backgroundColor = "#28a745"; e.target.style.color = "#fff";
             } else {
                 layoutMode = 'page';
                 e.target.innerText = "Layout: Sheet Music (Grid)";
-                e.target.style.backgroundColor = "#6c757d"; 
-                e.target.style.color = "#fff";
+                e.target.style.backgroundColor = "#6c757d"; e.target.style.color = "#fff";
             }
             document.getElementById('clearBtn').click(); 
         });
@@ -177,7 +219,7 @@
                     document.getElementById('sliderContainer').style.display = 'none';
                     document.getElementById('instrumentToggle').style.display = 'none';
                 } catch (err) {
-                    alert("MIDI could not be accessed. Ensure your keyboard is plugged in and your browser supports WebMIDI.");
+                    alert("MIDI could not be accessed.");
                 }
             } else {
                 inputSource = 'mic';
@@ -200,14 +242,12 @@
             html2pdf().set(opt).from(element).save();
         });
 
-        // ---------------- RHYTHM MATH ENGINE ----------------
+        // ---------------- RHYTHM & THEORY MATH ----------------
 
         function calculateVexFlowDuration(elapsedBeats) {
-            // Filter available durations based on user's specificity setting
             const allowed = [4, 2, 1, 0.5, 0.25].filter(b => b >= minDurationBeats);
             if (allowed.length === 0) allowed.push(minDurationBeats);
 
-            // Find the closest mathematical match
             let closest = allowed[0];
             let minDiff = Math.abs(elapsedBeats - closest);
             for(let i = 1; i < allowed.length; i++) {
@@ -215,13 +255,28 @@
                 if(diff < minDiff) { minDiff = diff; closest = allowed[i]; }
             }
 
-            // Convert raw math to VexFlow string formats
-            if (closest === 4) return "w";   // Whole
-            if (closest === 2) return "h";   // Half
-            if (closest === 1) return "q";   // Quarter
-            if (closest === 0.5) return "8"; // 8th
-            if (closest === 0.25) return "16"; // 16th
+            if (closest === 4) return "w";   
+            if (closest === 2) return "h";   
+            if (closest === 1) return "q";   
+            if (closest === 0.5) return "8"; 
+            if (closest === 0.25) return "16"; 
             return "q"; 
+        }
+
+        function getAccidental(noteName, key) {
+            let baseLetter = noteName[0];
+            let isSharp = noteName.includes("#");
+            let isFlat = noteName.includes("b");
+            let noteAccidental = isSharp ? "#" : (isFlat ? "b" : "n");
+
+            let sigMatch = keySignatures[key].find(n => n.startsWith(baseLetter));
+            let sigAccidental = sigMatch ? (sigMatch.includes("#") ? "#" : "b") : "n";
+
+            // Only return an accidental if the note deviates from the key signature
+            if (noteAccidental !== sigAccidental) {
+                return noteAccidental;
+            }
+            return null; 
         }
 
         // ---------------- MIDI ENGINE ----------------
@@ -233,63 +288,71 @@
             let note = midiMessage.data[1];
             let velocity = (midiMessage.data.length > 2) ? midiMessage.data[2] : 0;
             
-            let noteName = noteStrings[note % 12];
-            let octave = Math.floor(note / 12) - 1; 
-            let vfNoteString = noteName.toLowerCase() + "/" + octave;
-
-            // Note On
             if (command >= 144 && command <= 159 && velocity > 0) {
-                registerNoteAndDraw(note);
+                activeMidiNotes.add(note);
+                if (chordRenderTimer) clearTimeout(chordRenderTimer);
+                chordRenderTimer = setTimeout(() => {
+                    let notesArray = Array.from(activeMidiNotes).sort((a, b) => a - b);
+                    registerNotesAndDraw(notesArray);
+                }, 40); 
             }
             
-            // Note Off (128-143 is Note Off. 144-159 with velocity 0 is also Note Off)
             if ((command >= 128 && command <= 143) || (command >= 144 && command <= 159 && velocity === 0)) {
-                if (activeNoteName === vfNoteString) {
-                    activeNoteName = ""; // Stop the stopwatch for this note
-                }
+                activeMidiNotes.delete(note);
+                if (activeMidiNotes.size === 0) activeNoteName = ""; 
             }
         }
 
         // ---------------- DRAWING ENGINE ----------------
 
-        function registerNoteAndDraw(note) {
-            let noteName = noteStrings[note % 12];
-            let octave = Math.floor(note / 12) - 1; 
-            
-            if (note >= 21 && note <= 108) {
-                let vfNoteString = noteName.toLowerCase() + "/" + octave;
-                document.getElementById('noteDisplay').innerText = noteName + octave;
+        function registerNotesAndDraw(notesArray) {
+            let validNotes = notesArray.filter(n => n >= 21 && n <= 108);
+            if (validNotes.length === 0) return;
+
+            let vfKeys = [];
+            let displayNames = [];
+            let accidentals = [];
+
+            validNotes.forEach(note => {
+                let noteName = currentNoteStrings[note % 12];
+                let octave = Math.floor(note / 12) - 1; 
+                vfKeys.push(noteName.toLowerCase() + "/" + octave);
+                displayNames.push(noteName + octave);
                 
-                // If this is a NEW note
-                if (activeNoteName !== vfNoteString) {
-                    activeNoteName = vfNoteString;
-                    activeNoteStartTime = Date.now();
-                    
-                    const clef = octave >= 4 ? "treble" : "bass";
-                    let initialDur = calculateVexFlowDuration(0); // Start with minimum allowed length
-                    
-                    let newNoteData = { keys: [vfNoteString], clef: clef, name: noteName, duration: initialDur };
-                    
-                    if (layoutMode === 'single') {
-                        notesHistory = [newNoteData];
-                    } else {
-                        notesHistory.push(newNoteData);
-                    }
-                    
-                    activeNoteIndex = notesHistory.length - 1;
+                // Determine if we explicitly need to draw a #, b, or natural sign
+                let requiredAccidental = getAccidental(noteName, currentKey);
+                accidentals.push(requiredAccidental); 
+            });
+
+            document.getElementById('noteDisplay').innerText = displayNames.join(" + ");
+            let chordID = vfKeys.join("|"); 
+                
+            if (activeNoteName !== chordID) {
+                activeNoteName = chordID;
+                activeNoteStartTime = Date.now();
+                
+                let lowestOctave = Math.floor(validNotes[0] / 12) - 1;
+                const clef = lowestOctave >= 4 ? "treble" : "bass";
+                let initialDur = calculateVexFlowDuration(0); 
+                
+                let newNoteData = { keys: vfKeys, clef: clef, accidentals: accidentals, duration: initialDur };
+                
+                if (layoutMode === 'single') {
+                    notesHistory = [newNoteData];
+                } else {
+                    notesHistory.push(newNoteData);
+                }
+                
+                activeNoteIndex = notesHistory.length - 1;
+                renderStaff();
+            } else {
+                let elapsedMs = Date.now() - activeNoteStartTime;
+                let beatsElapsed = elapsedMs * (targetBPM / 60000);
+                let newDur = calculateVexFlowDuration(beatsElapsed);
+                
+                if (notesHistory[activeNoteIndex].duration !== newDur) {
+                    notesHistory[activeNoteIndex].duration = newDur;
                     renderStaff();
-                } 
-                // If the SAME note is still being held down
-                else {
-                    let elapsedMs = Date.now() - activeNoteStartTime;
-                    let beatsElapsed = elapsedMs * (targetBPM / 60000);
-                    let newDur = calculateVexFlowDuration(beatsElapsed);
-                    
-                    // Update and Redraw only if the duration mathematically crosses a threshold
-                    if (notesHistory[activeNoteIndex].duration !== newDur) {
-                        notesHistory[activeNoteIndex].duration = newDur;
-                        renderStaff();
-                    }
                 }
             }
         }
@@ -307,10 +370,12 @@
                 
                 let data = notesHistory[0];
                 const stave = new VF.Stave(10, 40, 150);
-                stave.addClef(data.clef).setContext(context).draw();
+                stave.addClef(data.clef).addKeySignature(currentKey).setContext(context).draw();
 
                 let vfNote = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: data.clef });
-                if (data.name.includes("#")) vfNote.addModifier(new VF.Accidental("#"), 0);
+                data.accidentals.forEach((acc, idx) => {
+                    if (acc) vfNote.addModifier(new VF.Accidental(acc), idx);
+                });
 
                 const voice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false);
                 voice.addTickables([vfNote]);
@@ -325,11 +390,13 @@
 
                 let lineClef = notesHistory[0].clef; 
                 let stave = new VF.Stave(10, 40, dynamicWidth - 20);
-                stave.addClef(lineClef).setContext(context).draw();
+                stave.addClef(lineClef).addKeySignature(currentKey).setContext(context).draw();
 
                 let voiceNotes = notesHistory.map(data => {
                     let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
-                    if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
+                    data.accidentals.forEach((acc, idx) => {
+                        if (acc) vfN.addModifier(new VF.Accidental(acc), idx);
+                    });
                     return vfN;
                 });
 
@@ -342,7 +409,6 @@
                 wrapper.scrollLeft = wrapper.scrollWidth;
 
             } else {
-                // PAGE (GRID) MODE
                 let renderHistory = [...notesHistory];
                 if (renderHistory.length > NOTES_PER_LINE * LINES_PER_PAGE) {
                     renderHistory = [ renderHistory[renderHistory.length - 1] ];
@@ -362,17 +428,18 @@
                     let lineClef = lineNotesData[0].clef; 
 
                     let stave = new VF.Stave(10, 40 + (i * 120), 350);
-                    stave.addClef(lineClef).setContext(context).draw();
+                    stave.addClef(lineClef).addKeySignature(currentKey).setContext(context).draw();
 
                     let voiceNotes = lineNotesData.map(data => {
                         let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
-                        if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
+                        data.accidentals.forEach((acc, idx) => {
+                            if (acc) vfN.addModifier(new VF.Accidental(acc), idx);
+                        });
                         return vfN;
                     });
 
                     const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false);
                     voice.addTickables(voiceNotes);
-                    
                     new VF.Formatter().joinVoices([voice]).format([voice], 300);
                     voice.draw(context, stave);
                 }
@@ -437,9 +504,9 @@
                         pitchBuffer.push(note);
                         if (pitchBuffer.length > 5) pitchBuffer.shift(); 
                         let isStable = pitchBuffer.length === 5 && pitchBuffer.every(val => val === pitchBuffer[0]);
-                        if (isStable) registerNoteAndDraw(note);
+                        if (isStable) registerNotesAndDraw([note]); 
                     } else {
-                        registerNoteAndDraw(note);
+                        registerNotesAndDraw([note]);
                     }
                 }
             } else {
@@ -447,7 +514,7 @@
                 let requiredSilence = isVoiceMode ? 15 : 5; 
                 
                 if (silenceFrames > requiredSilence) {
-                    activeNoteName = ""; // Stop the microphone stopwatch!
+                    activeNoteName = ""; 
                     document.getElementById('noteDisplay').style.color = "#2c3e50";
                     pitchBuffer = []; 
                 }
