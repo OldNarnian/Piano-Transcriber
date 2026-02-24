@@ -6,6 +6,7 @@
     <title>Instant Pitch & MIDI Detector</title>
     
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 20px; background-color: #f8f9fa;}
@@ -18,19 +19,32 @@
         #startBtn:active { background-color: #0056b3; }
         
         /* Initial Hidden States */
-        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn { display: none; }
+        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn, #pdfBtn { display: none; }
         
         #modeToggle { background-color: #6c757d; }
         #instrumentToggle { background-color: #17a2b8; }
         #sourceToggle { background-color: #fd7e14; }
         #clearBtn { background-color: #dc3545; }
+        #pdfBtn { background-color: #6f42c1; } /* Purple for PDF */
         
         .slider-container { margin-top: 20px; display: none; flex-direction: column; align-items: center; font-size: 14px; color: #555;}
         input[type="range"] { width: 80%; max-width: 300px; margin-top: 8px; }
         
         #noteDisplay { font-size: 35px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
         
-        #staff { display: flex; justify-content: center; margin-top: 15px; min-height: 420px; } 
+        /* New Wrapper to handle the infinite scrolling gracefully */
+        .staff-wrapper {
+            width: 95%;
+            margin: 15px auto;
+            overflow-x: auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            min-height: 250px;
+            white-space: nowrap;
+        }
+        
+        #staff { display: inline-block; padding: 10px; } 
     </style>
 </head>
 <body>
@@ -40,8 +54,9 @@
     <div class="controls">
         <button id="startBtn">Start Application</button>
         <button id="sourceToggle">Source: Microphone</button>
-        <button id="modeToggle">Layout: Sheet Music</button>
+        <button id="modeToggle">Layout: Sheet Music (Grid)</button>
         <button id="instrumentToggle">Input: Voice Mode</button>
+        <button id="pdfBtn">Export to PDF</button>
         <button id="clearBtn">Clear Staff</button>
     </div>
 
@@ -51,7 +66,10 @@
     </div>
     
     <div id="noteDisplay">--</div>
-    <div id="staff"></div>
+    
+    <div class="staff-wrapper" id="staffWrapper">
+        <div id="staff"></div>
+    </div>
 
     <script>
         let audioContext;
@@ -63,9 +81,9 @@
         const noteStrings = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
         // State Management Variables
-        let isMultiMode = false;
+        let layoutMode = 'page'; // 'page', 'scroll', or 'single'
         let isVoiceMode = true; 
-        let inputSource = 'mic'; // 'mic' or 'midi'
+        let inputSource = 'mic'; 
         let volumeThreshold = 0.05;
         
         let notesHistory = [];
@@ -97,11 +115,25 @@
             document.getElementById('noteDisplay').innerText = "--";
         });
 
+        // The new 3-way toggle logic
         document.getElementById('modeToggle').addEventListener('click', (e) => {
-            isMultiMode = !isMultiMode;
-            e.target.innerText = isMultiMode ? "Layout: Single Note" : "Layout: Sheet Music";
-            e.target.style.backgroundColor = isMultiMode ? "#28a745" : "#6c757d"; 
-            document.getElementById('clearBtn').click(); // Auto-clear on switch
+            if (layoutMode === 'page') {
+                layoutMode = 'scroll';
+                e.target.innerText = "Layout: Horizontal Scroll";
+                e.target.style.backgroundColor = "#ffc107"; 
+                e.target.style.color = "#000";
+            } else if (layoutMode === 'scroll') {
+                layoutMode = 'single';
+                e.target.innerText = "Layout: Single Note";
+                e.target.style.backgroundColor = "#28a745"; 
+                e.target.style.color = "#fff";
+            } else {
+                layoutMode = 'page';
+                e.target.innerText = "Layout: Sheet Music (Grid)";
+                e.target.style.backgroundColor = "#6c757d"; 
+                e.target.style.color = "#fff";
+            }
+            document.getElementById('clearBtn').click(); 
         });
 
         document.getElementById('instrumentToggle').addEventListener('click', (e) => {
@@ -113,7 +145,6 @@
 
         document.getElementById('sourceToggle').addEventListener('click', async (e) => {
             if (inputSource === 'mic') {
-                // Try to switch to MIDI
                 try {
                     const midiAccess = await navigator.requestMIDIAccess();
                     for (let input of midiAccess.inputs.values()) {
@@ -121,22 +152,18 @@
                     }
                     inputSource = 'midi';
                     e.target.innerText = "Source: USB MIDI";
-                    e.target.style.backgroundColor = "#8e44ad"; // Purple
+                    e.target.style.backgroundColor = "#8e44ad"; 
                     
-                    // Hide mic-specific controls for a cleaner UI
                     document.getElementById('sliderContainer').style.display = 'none';
                     document.getElementById('instrumentToggle').style.display = 'none';
-                    
                 } catch (err) {
-                    alert("MIDI could not be accessed. Your browser might not support it, or no keyboard is connected.");
+                    alert("MIDI could not be accessed. Ensure your keyboard is plugged in and your browser supports WebMIDI.");
                 }
             } else {
-                // Switch back to Mic
                 inputSource = 'mic';
                 e.target.innerText = "Source: Microphone";
-                e.target.style.backgroundColor = "#fd7e14"; // Orange
+                e.target.style.backgroundColor = "#fd7e14"; 
                 
-                // Bring back mic controls
                 document.getElementById('sliderContainer').style.display = 'flex';
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
             }
@@ -148,6 +175,20 @@
             document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2);
         });
 
+        // Export to PDF Logic
+        document.getElementById('pdfBtn').addEventListener('click', () => {
+            const element = document.getElementById('staff');
+            const opt = {
+                margin:       0.5,
+                filename:     'piano-transcription.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2 },
+                jsPDF:        { unit: 'in', format: 'letter', orientation: 'landscape' }
+            };
+            // Call html2pdf, pass in our SVG wrapper, and save
+            html2pdf().set(opt).from(element).save();
+        });
+
         // ---------------- MIDI ENGINE ----------------
 
         function getMIDIMessage(midiMessage) {
@@ -157,9 +198,7 @@
             let note = midiMessage.data[1];
             let velocity = (midiMessage.data.length > 2) ? midiMessage.data[2] : 0;
             
-            // Commands 144 to 159 are "Note On" across the 16 MIDI channels
             if (command >= 144 && command <= 159 && velocity > 0) {
-                // MIDI is perfectly digital, so we bypass all stability buffers
                 registerNoteAndDraw(note);
             }
         }
@@ -180,7 +219,8 @@
             let vfNoteString = noteName.toLowerCase() + "/" + octave;
             const clef = octave >= 4 ? "treble" : "bass";
 
-            if (!isMultiMode) {
+            if (layoutMode === 'single') {
+                // SINGLE NOTE MODE
                 if (currentDrawnNote === vfNoteString) return; 
                 currentDrawnNote = vfNoteString;
 
@@ -202,7 +242,47 @@
                 new VF.Formatter().joinVoices([voice]).format([voice], 100);
                 voice.draw(context, stave);
                 
+            } else if (layoutMode === 'scroll') {
+                // HORIZONTAL SCROLL MODE
+                if (currentDrawnNote === vfNoteString && inputSource === 'mic') return; 
+                currentDrawnNote = vfNoteString;
+
+                notesHistory.push({ keys: [vfNoteString], clef: clef, name: noteName });
+
+                const staffDiv = document.getElementById("staff");
+                staffDiv.innerHTML = ""; 
+
+                // Dynamically widen the canvas based on note count
+                let dynamicWidth = Math.max(300, notesHistory.length * 55 + 50);
+
+                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
+                renderer.resize(dynamicWidth, 200); 
+                const context = renderer.getContext();
+
+                // Lock the clef to the first note played to prevent disjointed reading
+                let lineClef = notesHistory[0].clef; 
+
+                let stave = new VF.Stave(10, 40, dynamicWidth - 20);
+                stave.addClef(lineClef).setContext(context).draw();
+
+                let voiceNotes = notesHistory.map(data => {
+                    let vfN = new VF.StaveNote({ keys: [data.keys[0]], duration: "q", clef: lineClef });
+                    if (data.name.includes("#")) vfN.addModifier(new VF.Accidental("#"), 0);
+                    return vfN;
+                });
+
+                const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false);
+                voice.addTickables(voiceNotes);
+                
+                new VF.Formatter().joinVoices([voice]).format([voice], dynamicWidth - 80);
+                voice.draw(context, stave);
+
+                // Auto-scroll the wrapper to keep the newest note visible
+                const wrapper = document.getElementById("staffWrapper");
+                wrapper.scrollLeft = wrapper.scrollWidth;
+
             } else {
+                // PAGE (GRID) MODE
                 if (currentDrawnNote === vfNoteString && inputSource === 'mic') return; 
                 currentDrawnNote = vfNoteString;
 
@@ -282,7 +362,6 @@
         function updatePitch() {
             requestAnimationFrame(updatePitch);
             
-            // Skip microphone math entirely if we are using USB MIDI
             if (inputSource === 'midi') return; 
 
             let buffer = new Float32Array(analyser.fftSize);
@@ -331,11 +410,11 @@
                 microphone.connect(analyser);
                 updatePitch();
                 
-                // Unhide the main UI
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('sourceToggle').style.display = 'inline-block';
                 document.getElementById('modeToggle').style.display = 'inline-block';
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
+                document.getElementById('pdfBtn').style.display = 'inline-block';
                 document.getElementById('clearBtn').style.display = 'inline-block';
                 document.getElementById('sliderContainer').style.display = 'flex';
             } catch (err) {
@@ -345,4 +424,3 @@
     </script>
 </body>
 </html>
-
