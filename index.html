@@ -381,13 +381,26 @@
             pitchBuffer = []; 
         });
 
-        document.getElementById('sourceToggle').addEventListener('click', async (e) => {
+                document.getElementById('sourceToggle').addEventListener('click', async (e) => {
             if (inputSource === 'mic') {
                 try {
                     const midiAccess = await navigator.requestMIDIAccess();
-                    for (let input of midiAccess.inputs.values()) {
-                        input.onmidimessage = getMIDIMessage;
+                    
+                    // --- NEW DIAGNOSTIC CHECK ---
+                    if (midiAccess.inputs.size === 0) {
+                        alert("Browser has permission, but sees 0 keyboards! Check your OTG adapter, phone OTG settings, and ensure the piano is on.");
+                        return; // Stop here, don't turn the button purple
+                    } else {
+                        let deviceNames = [];
+                        for (let input of midiAccess.inputs.values()) {
+                            deviceNames.push(input.name || "Unknown Keyboard");
+                            input.onmidimessage = getMIDIMessage;
+                        }
+                        // This will pop up telling you exactly what keyboard it found!
+                        alert("Success! Connected to: " + deviceNames.join(", "));
                     }
+                    // -----------------------------
+
                     inputSource = 'midi';
                     e.target.innerText = "Source: MIDI";
                     e.target.style.backgroundColor = "#8e44ad"; 
@@ -405,6 +418,7 @@
             }
             document.getElementById('clearBtn').click();
         });
+
 
         document.getElementById('volSlider').addEventListener('input', (e) => {
             volumeThreshold = parseFloat(e.target.value);
