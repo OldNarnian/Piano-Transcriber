@@ -8,81 +8,117 @@
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+    
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 20px; background-color: #f8f9fa;}
-        h2 { color: #333; margin-bottom: 10px;}
+        /* Apply handwritten font to everything */
+        body { font-family: 'Caveat', cursive; text-align: center; margin-top: 20px; background-color: #f8f9fa; transition: background-color 0.3s; font-size: 22px;}
+        h2 { color: #333; margin-bottom: 5px; font-size: 40px;}
         
-        .controls { display: flex; justify-content: center; gap: 8px; margin-top: 15px; flex-wrap: wrap; max-width: 95%; margin-left: auto; margin-right: auto;}
+        button, select, input { font-family: 'Caveat', cursive; font-size: 22px; }
         
-        button { padding: 10px 16px; font-size: 15px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
-        #startBtn { background-color: #007bff; font-size: 20px; padding: 15px 30px;}
-        #startBtn:active { background-color: #0056b3; }
+        /* The Hamburger Menu Toggle */
+        #menuToggle { display: none; background-color: #343a40; color: white; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; margin: 0 auto 15px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        #modeToggle, #instrumentToggle, #sourceToggle, #clearBtn, #pdfBtn, #rhythmControls { display: none; }
+        /* The Collapsible Container */
+        .menu-container { display: none; flex-direction: column; align-items: center; background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px; max-width: 450px; margin: 0 auto 20px auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); }
+        .menu-container.open { display: flex; }
+
+        .controls { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; width: 100%; margin-bottom: 15px; }
+        button { padding: 8px 16px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
         
+        #startBtn { background-color: #007bff; font-size: 28px; padding: 15px 30px; display: inline-block; margin-top: 20px;}
         #modeToggle { background-color: #6c757d; }
         #instrumentToggle { background-color: #17a2b8; }
         #sourceToggle { background-color: #fd7e14; }
         #clearBtn { background-color: #dc3545; }
         #pdfBtn { background-color: #6f42c1; }
+        #playBtn { background-color: #28a745; } 
         
-        .settings-panel { margin-top: 20px; display: flex; flex-direction: column; align-items: center; font-size: 14px; color: #555; background: #e9ecef; padding: 15px; border-radius: 8px; max-width: 400px; margin-left: auto; margin-right: auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);}
-        input[type="range"] { width: 100%; margin-top: 8px; margin-bottom: 15px; }
-        select { padding: 5px; border-radius: 5px; border: 1px solid #ccc; width: 100%; font-size: 16px; margin-bottom: 15px;}
+        .settings-panel { display: flex; flex-direction: column; align-items: center; width: 100%; color: #333;}
+        .setting-row { width: 100%; display: flex; flex-direction: column; margin-bottom: 12px; align-items: center; }
+        input[type="range"] { width: 90%; margin-top: 4px; }
+        select { padding: 2px 5px; border-radius: 5px; border: 1px solid #ccc; width: 90%; }
         
-        #noteDisplay { font-size: 30px; font-weight: bold; color: #2c3e50; margin-top: 15px;}
+        .color-pickers { display: flex; justify-content: space-around; width: 90%; margin-top: 5px; }
+        .color-group { display: flex; flex-direction: column; align-items: center; }
+        input[type="color"] { border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; background: none; }
+        
+        #noteDisplay { font-size: 45px; font-weight: bold; color: #2c3e50; margin-top: 10px;}
         
         .staff-wrapper {
-            width: 95%; margin: 15px auto; overflow-x: auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); min-height: 250px; white-space: nowrap;
+            width: 95%; margin: 10px auto; overflow-x: auto; background: transparent; min-height: 250px; white-space: nowrap;
         }
         #staff { display: inline-block; padding: 10px; } 
     </style>
 </head>
 <body>
 
-    <h2>Live Piano Transcription</h2>
+    <h2>Piano Transcriber</h2>
     
-    <div class="controls">
-        <button id="startBtn">Start Application</button>
-        <button id="sourceToggle">Source: Microphone</button>
-        <button id="modeToggle">Layout: Sheet Music (Grid)</button>
-        <button id="instrumentToggle">Input: Voice Mode</button>
-        <button id="pdfBtn">Export to PDF</button>
-        <button id="clearBtn">Clear Staff</button>
-    </div>
-
-    <div class="settings-panel" id="rhythmControls">
-        <div id="sliderContainer" style="width: 100%;">
-            <label for="volSlider">Mic Sensitivity: <strong id="volLabel">0.05</strong></label>
-            <input type="range" id="volSlider" min="0.01" max="0.20" step="0.01" value="0.05">
+    <button id="startBtn">Start Application</button>
+    <button id="menuToggle">☰ Controls & Settings</button>
+    
+    <div class="menu-container" id="mainMenu">
+        <div class="controls">
+            <button id="playBtn">▶ Play Music</button>
+            <button id="sourceToggle">Source: Microphone</button>
+            <button id="modeToggle">Layout: Grid</button>
+            <button id="instrumentToggle">Input: Voice Mode</button>
+            <button id="pdfBtn">Export to PDF</button>
+            <button id="clearBtn">Clear Staff</button>
         </div>
-        
-        <label for="bpmSlider">Goal Tempo (BPM): <strong id="bpmLabel">120</strong></label>
-        <input type="range" id="bpmSlider" min="40" max="240" step="1" value="120">
-        
-        <label for="quantSelect">Note Specificity (Quantization):</label>
-        <select id="quantSelect">
-            <option value="4">Whole Note (Lowest)</option>
-            <option value="2">Half Note</option>
-            <option value="1">Quarter Note</option>
-            <option value="0.5">8th Note</option>
-            <option value="0.25" selected>16th Note (Highest)</option>
-        </select>
 
-        <label for="keySelect">Song Key Signature:</label>
-        <select id="keySelect">
-            <option value="C" selected>C Major (No Sharps/Flats)</option>
-            <option value="G">G Major (1 Sharp)</option>
-            <option value="D">D Major (2 Sharps)</option>
-            <option value="A">A Major (3 Sharps)</option>
-            <option value="E">E Major (4 Sharps)</option>
-            <option value="B">B Major (5 Sharps)</option>
-            <option value="F">F Major (1 Flat)</option>
-            <option value="Bb">Bb Major (2 Flats)</option>
-            <option value="Eb">Eb Major (3 Flats)</option>
-            <option value="Ab">Ab Major (4 Flats)</option>
-            <option value="Db">Db Major (5 Flats)</option>
-        </select>
+        <div class="settings-panel">
+            <div class="setting-row" id="sliderContainer">
+                <label for="volSlider">Mic Sensitivity: <strong id="volLabel">0.05</strong></label>
+                <input type="range" id="volSlider" min="0.01" max="0.20" step="0.01" value="0.05">
+            </div>
+            
+            <div class="setting-row">
+                <label for="bpmSlider">Tempo (BPM): <strong id="bpmLabel">120</strong></label>
+                <input type="range" id="bpmSlider" min="40" max="240" step="1" value="120">
+            </div>
+            
+            <div class="setting-row">
+                <label for="quantSelect">Note Specificity:</label>
+                <select id="quantSelect">
+                    <option value="4">Whole Note</option>
+                    <option value="2">Half Note</option>
+                    <option value="1">Quarter Note</option>
+                    <option value="0.5">8th Note</option>
+                    <option value="0.25" selected>16th Note</option>
+                </select>
+            </div>
+
+            <div class="setting-row">
+                <label for="keySelect">Key Signature:</label>
+                <select id="keySelect">
+                    <option value="C" selected>C Major</option>
+                    <option value="G">G Major</option>
+                    <option value="D">D Major</option>
+                    <option value="A">A Major</option>
+                    <option value="E">E Major</option>
+                    <option value="B">B Major</option>
+                    <option value="F">F Major</option>
+                    <option value="Bb">Bb Major</option>
+                    <option value="Eb">Eb Major</option>
+                    <option value="Ab">Ab Major</option>
+                    <option value="Db">Db Major</option>
+                </select>
+            </div>
+
+            <div class="color-pickers">
+                <div class="color-group">
+                    <label for="bgColorPicker">Paper Color</label>
+                    <input type="color" id="bgColorPicker" value="#f8f9fa">
+                </div>
+                <div class="color-group">
+                    <label for="inkColorPicker">Ink Color</label>
+                    <input type="color" id="inkColorPicker" value="#000000">
+                </div>
+            </div>
+        </div>
     </div>
     
     <div id="noteDisplay">--</div>
@@ -98,25 +134,14 @@
         
         const VF = Vex.Flow;
         
-        // Music Theory Engine
         const notesSharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
         const notesFlat  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
         
         const keySignatures = {
-            "C":  [],
-            "G":  ["F#"],
-            "D":  ["F#", "C#"],
-            "A":  ["F#", "C#", "G#"],
-            "E":  ["F#", "C#", "G#", "D#"],
-            "B":  ["F#", "C#", "G#", "D#", "A#"],
-            "F":  ["Bb"],
-            "Bb": ["Bb", "Eb"],
-            "Eb": ["Bb", "Eb", "Ab"],
-            "Ab": ["Bb", "Eb", "Ab", "Db"],
-            "Db": ["Bb", "Eb", "Ab", "Db", "Gb"]
+            "C":  [], "G":  ["F#"], "D":  ["F#", "C#"], "A":  ["F#", "C#", "G#"], "E":  ["F#", "C#", "G#", "D#"], "B":  ["F#", "C#", "G#", "D#", "A#"],
+            "F":  ["Bb"], "Bb": ["Bb", "Eb"], "Eb": ["Bb", "Eb", "Ab"], "Ab": ["Bb", "Eb", "Ab", "Db"], "Db": ["Bb", "Eb", "Ab", "Db", "Gb"]
         };
 
-        // State Management 
         let layoutMode = 'page'; 
         let isVoiceMode = true; 
         let inputSource = 'mic'; 
@@ -127,8 +152,8 @@
         
         let currentKey = "C";
         let currentNoteStrings = notesSharp;
+        let inkColor = "#000000"; // Default ink color
         
-        // Engine State
         let notesHistory = [];
         let activeNoteName = ""; 
         let activeNoteStartTime = 0;
@@ -142,19 +167,73 @@
         let pitchBuffer = []; 
         let silenceFrames = 0; 
 
+        // Apply visual context styles (Color)
+        function applyInkColor(context) {
+            context.setFillStyle(inkColor);
+            context.setStrokeStyle(inkColor);
+        }
+
         function drawEmptyStaff() {
             const staffDiv = document.getElementById("staff");
             staffDiv.innerHTML = "";
             const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
             renderer.resize(200, 200);
             const context = renderer.getContext();
+            applyInkColor(context);
+            
             const stave = new VF.Stave(10, 40, 150);
             stave.addClef("treble").addKeySignature(currentKey).setContext(context).draw();
         }
         drawEmptyStaff();
 
-        // ---------------- UI EVENT LISTENERS ----------------
-        
+        // ---------------- MENU & UI LISTENERS ----------------
+        document.getElementById('menuToggle').addEventListener('click', () => {
+            document.getElementById('mainMenu').classList.toggle('open');
+        });
+
+        document.getElementById('bgColorPicker').addEventListener('input', (e) => {
+            document.body.style.backgroundColor = e.target.value;
+        });
+
+        document.getElementById('inkColorPicker').addEventListener('input', (e) => {
+            inkColor = e.target.value;
+            document.getElementById('noteDisplay').style.color = inkColor;
+            renderStaff(); // Immediately redraw existing notes in the new color
+        });
+
+        document.getElementById('playBtn').addEventListener('click', () => {
+            if (notesHistory.length === 0) return;
+            if (audioContext.state === 'suspended') audioContext.resume();
+            
+            let now = audioContext.currentTime + 0.1; 
+            const beatDuration = 60 / targetBPM;
+            const durMap = { "w": 4, "h": 2, "q": 1, "8": 0.5, "16": 0.25 };
+
+            notesHistory.forEach(noteObj => {
+                let beats = durMap[noteObj.duration] || 1;
+                let durationSeconds = beats * beatDuration;
+                
+                noteObj.midiNotes.forEach(midiNum => {
+                    let freq = 440 * Math.pow(2, (midiNum - 69) / 12);
+                    let osc = audioContext.createOscillator();
+                    let gain = audioContext.createGain();
+                    
+                    osc.type = 'triangle'; 
+                    osc.frequency.value = freq;
+                    
+                    gain.gain.setValueAtTime(0, now);
+                    gain.gain.linearRampToValueAtTime(0.3, now + 0.02); 
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + durationSeconds - 0.02); 
+                    
+                    osc.connect(gain);
+                    gain.connect(audioContext.destination);
+                    osc.start(now);
+                    osc.stop(now + durationSeconds);
+                });
+                now += durationSeconds;
+            });
+        });
+
         document.getElementById('keySelect').addEventListener('change', (e) => {
             currentKey = e.target.value;
             let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"];
@@ -185,15 +264,15 @@
         document.getElementById('modeToggle').addEventListener('click', (e) => {
             if (layoutMode === 'page') {
                 layoutMode = 'scroll';
-                e.target.innerText = "Layout: Horizontal Scroll";
+                e.target.innerText = "Layout: Scroll";
                 e.target.style.backgroundColor = "#ffc107"; e.target.style.color = "#000";
             } else if (layoutMode === 'scroll') {
                 layoutMode = 'single';
-                e.target.innerText = "Layout: Single Note";
+                e.target.innerText = "Layout: Single";
                 e.target.style.backgroundColor = "#28a745"; e.target.style.color = "#fff";
             } else {
                 layoutMode = 'page';
-                e.target.innerText = "Layout: Sheet Music (Grid)";
+                e.target.innerText = "Layout: Grid";
                 e.target.style.backgroundColor = "#6c757d"; e.target.style.color = "#fff";
             }
             document.getElementById('clearBtn').click(); 
@@ -201,7 +280,7 @@
 
         document.getElementById('instrumentToggle').addEventListener('click', (e) => {
             isVoiceMode = !isVoiceMode;
-            e.target.innerText = isVoiceMode ? "Input: Voice Mode" : "Input: Piano Mode";
+            e.target.innerText = isVoiceMode ? "Input: Voice" : "Input: Piano";
             e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; 
             pitchBuffer = []; 
         });
@@ -214,7 +293,7 @@
                         input.onmidimessage = getMIDIMessage;
                     }
                     inputSource = 'midi';
-                    e.target.innerText = "Source: USB MIDI";
+                    e.target.innerText = "Source: MIDI";
                     e.target.style.backgroundColor = "#8e44ad"; 
                     document.getElementById('sliderContainer').style.display = 'none';
                     document.getElementById('instrumentToggle').style.display = 'none';
@@ -223,9 +302,9 @@
                 }
             } else {
                 inputSource = 'mic';
-                e.target.innerText = "Source: Microphone";
+                e.target.innerText = "Source: Mic";
                 e.target.style.backgroundColor = "#fd7e14"; 
-                document.getElementById('sliderContainer').style.display = 'block';
+                document.getElementById('sliderContainer').style.display = 'flex';
                 document.getElementById('instrumentToggle').style.display = 'inline-block';
             }
             document.getElementById('clearBtn').click();
@@ -241,8 +320,6 @@
             const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } };
             html2pdf().set(opt).from(element).save();
         });
-
-        // ---------------- RHYTHM & THEORY MATH ----------------
 
         function calculateVexFlowDuration(elapsedBeats) {
             const allowed = [4, 2, 1, 0.5, 0.25].filter(b => b >= minDurationBeats);
@@ -272,15 +349,11 @@
             let sigMatch = keySignatures[key].find(n => n.startsWith(baseLetter));
             let sigAccidental = sigMatch ? (sigMatch.includes("#") ? "#" : "b") : "n";
 
-            // Only return an accidental if the note deviates from the key signature
-            if (noteAccidental !== sigAccidental) {
-                return noteAccidental;
-            }
+            if (noteAccidental !== sigAccidental) return noteAccidental;
             return null; 
         }
 
         // ---------------- MIDI ENGINE ----------------
-
         function getMIDIMessage(midiMessage) {
             if (inputSource !== 'midi') return;
             
@@ -304,7 +377,6 @@
         }
 
         // ---------------- DRAWING ENGINE ----------------
-
         function registerNotesAndDraw(notesArray) {
             let validNotes = notesArray.filter(n => n >= 21 && n <= 108);
             if (validNotes.length === 0) return;
@@ -318,10 +390,7 @@
                 let octave = Math.floor(note / 12) - 1; 
                 vfKeys.push(noteName.toLowerCase() + "/" + octave);
                 displayNames.push(noteName + octave);
-                
-                // Determine if we explicitly need to draw a #, b, or natural sign
-                let requiredAccidental = getAccidental(noteName, currentKey);
-                accidentals.push(requiredAccidental); 
+                accidentals.push(getAccidental(noteName, currentKey)); 
             });
 
             document.getElementById('noteDisplay').innerText = displayNames.join(" + ");
@@ -335,7 +404,7 @@
                 const clef = lowestOctave >= 4 ? "treble" : "bass";
                 let initialDur = calculateVexFlowDuration(0); 
                 
-                let newNoteData = { keys: vfKeys, clef: clef, accidentals: accidentals, duration: initialDur };
+                let newNoteData = { keys: vfKeys, clef: clef, accidentals: accidentals, duration: initialDur, midiNotes: validNotes };
                 
                 if (layoutMode === 'single') {
                     notesHistory = [newNoteData];
@@ -367,12 +436,15 @@
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(200, 200);
                 const context = renderer.getContext();
+                applyInkColor(context);
                 
                 let data = notesHistory[0];
                 const stave = new VF.Stave(10, 40, 150);
                 stave.addClef(data.clef).addKeySignature(currentKey).setContext(context).draw();
 
                 let vfNote = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: data.clef });
+                vfNote.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                
                 data.accidentals.forEach((acc, idx) => {
                     if (acc) vfNote.addModifier(new VF.Accidental(acc), idx);
                 });
@@ -387,6 +459,7 @@
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(dynamicWidth, 200); 
                 const context = renderer.getContext();
+                applyInkColor(context);
 
                 let lineClef = notesHistory[0].clef; 
                 let stave = new VF.Stave(10, 40, dynamicWidth - 20);
@@ -394,6 +467,7 @@
 
                 let voiceNotes = notesHistory.map(data => {
                     let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
+                    vfN.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
                     data.accidentals.forEach((acc, idx) => {
                         if (acc) vfN.addModifier(new VF.Accidental(acc), idx);
                     });
@@ -419,6 +493,7 @@
                 const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
                 renderer.resize(400, LINES_PER_PAGE * 120 + 40); 
                 const context = renderer.getContext();
+                applyInkColor(context);
 
                 for (let i = 0; i < LINES_PER_PAGE; i++) {
                     let startIndex = i * NOTES_PER_LINE;
@@ -432,6 +507,7 @@
 
                     let voiceNotes = lineNotesData.map(data => {
                         let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef });
+                        vfN.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
                         data.accidentals.forEach((acc, idx) => {
                             if (acc) vfN.addModifier(new VF.Accidental(acc), idx);
                         });
@@ -447,7 +523,6 @@
         }
 
         // ---------------- AUDIO ENGINE ----------------
-
         function noteFromPitch(frequency) {
             const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
             return Math.round(noteNum) + 69;
@@ -515,7 +590,7 @@
                 
                 if (silenceFrames > requiredSilence) {
                     activeNoteName = ""; 
-                    document.getElementById('noteDisplay').style.color = "#2c3e50";
+                    document.getElementById('noteDisplay').style.color = inkColor; 
                     pitchBuffer = []; 
                 }
             }
@@ -532,13 +607,10 @@
                 microphone.connect(analyser);
                 updatePitch();
                 
+                // Unhide the main UI
                 document.getElementById('startBtn').style.display = 'none';
-                document.getElementById('sourceToggle').style.display = 'inline-block';
-                document.getElementById('modeToggle').style.display = 'inline-block';
-                document.getElementById('instrumentToggle').style.display = 'inline-block';
-                document.getElementById('pdfBtn').style.display = 'inline-block';
-                document.getElementById('clearBtn').style.display = 'inline-block';
-                document.getElementById('rhythmControls').style.display = 'flex';
+                document.getElementById('menuToggle').style.display = 'block';
+                document.getElementById('mainMenu').classList.add('open');
             } catch (err) {
                 alert('Microphone access denied or not found.');
             }
