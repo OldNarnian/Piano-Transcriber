@@ -8,26 +8,23 @@
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;700&display=swap" rel="stylesheet">
     
     <style>
-        /* Apply handwritten font to everything */
-        body { font-family: 'Caveat', cursive; text-align: center; margin-top: 20px; background-color: #f8f9fa; transition: background-color 0.3s; font-size: 22px;}
-        h2 { color: #333; margin-bottom: 5px; font-size: 40px;}
+        body { font-family: 'Dancing Script', cursive; text-align: center; margin-top: 20px; background-color: #fdfbf7; transition: background-color 0.4s ease; font-size: 26px;}
+        h2 { color: #333; margin-bottom: 5px; font-size: 48px; font-weight: 700;}
         
-        button, select, input { font-family: 'Caveat', cursive; font-size: 22px; }
+        button, select, input, label { font-family: 'Dancing Script', cursive; font-size: 24px; font-weight: 700; }
         
-        /* The Hamburger Menu Toggle */
         #menuToggle { display: none; background-color: #343a40; color: white; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; margin: 0 auto 15px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         
-        /* The Collapsible Container */
-        .menu-container { display: none; flex-direction: column; align-items: center; background: rgba(255,255,255,0.6); border-radius: 12px; padding: 15px; max-width: 450px; margin: 0 auto 20px auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1); }
+        .menu-container { display: none; flex-direction: column; align-items: center; background: rgba(255,255,255,0.7); border-radius: 12px; padding: 20px 15px; max-width: 500px; margin: 0 auto 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); }
         .menu-container.open { display: flex; }
 
-        .controls { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; width: 100%; margin-bottom: 15px; }
-        button { padding: 8px 16px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1;}
+        .controls { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; width: 100%; margin-bottom: 20px; }
+        button { padding: 8px 16px; cursor: pointer; border-radius: 8px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; transition: 0.2s; flex-grow: 1; letter-spacing: 1px;}
         
-        #startBtn { background-color: #007bff; font-size: 28px; padding: 15px 30px; display: inline-block; margin-top: 20px;}
+        #startBtn { background-color: #007bff; font-size: 32px; padding: 15px 40px; display: inline-block; margin-top: 30px;}
         #modeToggle { background-color: #6c757d; }
         #instrumentToggle { background-color: #17a2b8; }
         #sourceToggle { background-color: #fd7e14; }
@@ -35,20 +32,24 @@
         #pdfBtn { background-color: #6f42c1; }
         #playBtn { background-color: #28a745; } 
         
+        /* Save/Load Buttons */
+        #saveBtn { background-color: #20c997; }
+        #loadBtn { background-color: #e83e8c; }
+        
         .settings-panel { display: flex; flex-direction: column; align-items: center; width: 100%; color: #333;}
-        .setting-row { width: 100%; display: flex; flex-direction: column; margin-bottom: 12px; align-items: center; }
-        input[type="range"] { width: 90%; margin-top: 4px; }
-        select { padding: 2px 5px; border-radius: 5px; border: 1px solid #ccc; width: 90%; }
+        .setting-row { width: 100%; display: flex; flex-direction: column; margin-bottom: 15px; align-items: center; }
+        input[type="range"] { width: 90%; margin-top: 5px; }
+        select { padding: 4px 8px; border-radius: 8px; border: 1px solid #ccc; width: 90%; background-color: #fff; cursor: pointer;}
         
-        .color-pickers { display: flex; justify-content: space-around; width: 90%; margin-top: 5px; }
-        .color-group { display: flex; flex-direction: column; align-items: center; }
-        input[type="color"] { border: none; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; background: none; }
+        .color-section { display: flex; flex-direction: column; align-items: center; width: 100%; margin-bottom: 15px; }
+        .swatch-container { display: flex; gap: 12px; margin-top: 8px; align-items: center; justify-content: center; flex-wrap: wrap;}
+        .swatch { width: 36px; height: 36px; border-radius: 50%; border: 2px solid rgba(0,0,0,0.1); cursor: pointer; padding: 0; box-shadow: 0 2px 5px rgba(0,0,0,0.15); flex-grow: 0; transition: transform 0.2s;}
+        .swatch:active { transform: scale(0.9); }
+        input[type="color"] { width: 40px; height: 40px; padding: 0; border: none; background: none; cursor: pointer; border-radius: 50%;}
         
-        #noteDisplay { font-size: 45px; font-weight: bold; color: #2c3e50; margin-top: 10px;}
+        #noteDisplay { font-size: 55px; font-weight: bold; color: #000000; margin-top: 10px; transition: color 0.3s;}
         
-        .staff-wrapper {
-            width: 95%; margin: 10px auto; overflow-x: auto; background: transparent; min-height: 250px; white-space: nowrap;
-        }
+        .staff-wrapper { width: 95%; margin: 10px auto; overflow-x: auto; background: transparent; min-height: 250px; white-space: nowrap; }
         #staff { display: inline-block; padding: 10px; } 
     </style>
 </head>
@@ -61,12 +62,17 @@
     
     <div class="menu-container" id="mainMenu">
         <div class="controls">
-            <button id="playBtn">▶ Play Music</button>
-            <button id="sourceToggle">Source: Microphone</button>
-            <button id="modeToggle">Layout: Grid</button>
-            <button id="instrumentToggle">Input: Voice Mode</button>
-            <button id="pdfBtn">Export to PDF</button>
+            <button id="playBtn">▶ Play</button>
+            <button id="saveBtn">💾 Save</button>
+            <button id="loadBtn">📂 Load</button>
+            <button id="pdfBtn">Export PDF</button>
             <button id="clearBtn">Clear Staff</button>
+        </div>
+        
+        <div class="controls" style="margin-bottom: 10px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 15px;">
+            <button id="sourceToggle">Source: Mic</button>
+            <button id="modeToggle">Layout: Grid</button>
+            <button id="instrumentToggle">Input: Voice</button>
         </div>
 
         <div class="settings-panel">
@@ -108,14 +114,25 @@
                 </select>
             </div>
 
-            <div class="color-pickers">
-                <div class="color-group">
-                    <label for="bgColorPicker">Paper Color</label>
-                    <input type="color" id="bgColorPicker" value="#f8f9fa">
+            <div class="color-section">
+                <label>Paper Color</label>
+                <div class="swatch-container">
+                    <button class="swatch bg-swatch" style="background-color: #fdfbf7;" data-color="#fdfbf7" title="Vintage Cream"></button>
+                    <button class="swatch bg-swatch" style="background-color: #e3ebd6;" data-color="#e3ebd6" title="Muted Sage"></button>
+                    <button class="swatch bg-swatch" style="background-color: #e1e6f2;" data-color="#e1e6f2" title="Slate Blue"></button>
+                    <button class="swatch bg-swatch" style="background-color: #f2e1e1;" data-color="#f2e1e1" title="Dusty Rose"></button>
+                    <input type="color" id="bgColorPicker" value="#fdfbf7" title="Custom Paper">
                 </div>
-                <div class="color-group">
-                    <label for="inkColorPicker">Ink Color</label>
-                    <input type="color" id="inkColorPicker" value="#000000">
+            </div>
+
+            <div class="color-section">
+                <label>Ink Color</label>
+                <div class="swatch-container">
+                    <button class="swatch ink-swatch" style="background-color: #000000;" data-color="#000000" title="Pure Black"></button>
+                    <button class="swatch ink-swatch" style="background-color: #3b2f2f;" data-color="#3b2f2f" title="Sepia Brown"></button>
+                    <button class="swatch ink-swatch" style="background-color: #1a2a40;" data-color="#1a2a40" title="Midnight Navy"></button>
+                    <button class="swatch ink-swatch" style="background-color: #4a1c1c;" data-color="#4a1c1c" title="Deep Burgundy"></button>
+                    <input type="color" id="inkColorPicker" value="#000000" title="Custom Ink">
                 </div>
             </div>
         </div>
@@ -152,7 +169,7 @@
         
         let currentKey = "C";
         let currentNoteStrings = notesSharp;
-        let inkColor = "#000000"; // Default ink color
+        let inkColor = "#000000"; 
         
         let notesHistory = [];
         let activeNoteName = ""; 
@@ -161,13 +178,14 @@
         
         let activeMidiNotes = new Set();
         let chordRenderTimer = null;
+        let renderThrottleTimer = null; // Optimization variable
 
         const NOTES_PER_LINE = 8;
         const LINES_PER_PAGE = 3;
         let pitchBuffer = []; 
         let silenceFrames = 0; 
+        let frameCounter = 0; // Optimization variable
 
-        // Apply visual context styles (Color)
         function applyInkColor(context) {
             context.setFillStyle(inkColor);
             context.setStrokeStyle(inkColor);
@@ -186,21 +204,98 @@
         }
         drawEmptyStaff();
 
-        // ---------------- MENU & UI LISTENERS ----------------
+        // ---------------- SAVE & LOAD LOGIC ----------------
+        document.getElementById('saveBtn').addEventListener('click', () => {
+            if(notesHistory.length === 0) {
+                alert("The staff is empty! Play some notes before saving.");
+                return;
+            }
+            const saveData = {
+                notes: notesHistory,
+                key: currentKey,
+                bpm: targetBPM,
+                ink: inkColor,
+                bg: document.body.style.backgroundColor
+            };
+            localStorage.setItem('pianoAppSaveData', JSON.stringify(saveData));
+            
+            // Visual feedback
+            const btn = document.getElementById('saveBtn');
+            btn.innerText = "✓ Saved!";
+            setTimeout(() => btn.innerText = "💾 Save", 2000);
+        });
+
+        document.getElementById('loadBtn').addEventListener('click', () => {
+            const savedString = localStorage.getItem('pianoAppSaveData');
+            if (savedString) {
+                const data = JSON.parse(savedString);
+                
+                // Restore State
+                notesHistory = data.notes;
+                currentKey = data.key;
+                targetBPM = data.bpm;
+                inkColor = data.ink;
+                document.body.style.backgroundColor = data.bg || '#fdfbf7';
+                
+                // Update UI Controls to match saved state
+                document.getElementById('keySelect').value = currentKey;
+                document.getElementById('bpmSlider').value = targetBPM;
+                document.getElementById('bpmLabel').innerText = targetBPM;
+                document.getElementById('inkColorPicker').value = inkColor;
+                document.getElementById('noteDisplay').style.color = inkColor;
+                
+                // Re-calculate sharp/flat arrays
+                let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"];
+                currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp;
+                
+                // Clear any active live notes
+                activeNoteName = "";
+                activeNoteIndex = -1;
+                activeMidiNotes.clear();
+                
+                renderStaff();
+                
+                const btn = document.getElementById('loadBtn');
+                btn.innerText = "✓ Loaded!";
+                setTimeout(() => btn.innerText = "📂 Load", 2000);
+            } else {
+                alert("No saved song found on this device.");
+            }
+        });
+
+        // ---------------- MENU & COLOR UI LISTENERS ----------------
         document.getElementById('menuToggle').addEventListener('click', () => {
             document.getElementById('mainMenu').classList.toggle('open');
+        });
+
+        document.querySelectorAll('.bg-swatch').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                let color = e.target.getAttribute('data-color');
+                document.body.style.backgroundColor = color;
+                document.getElementById('bgColorPicker').value = color;
+            });
         });
 
         document.getElementById('bgColorPicker').addEventListener('input', (e) => {
             document.body.style.backgroundColor = e.target.value;
         });
 
+        document.querySelectorAll('.ink-swatch').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                inkColor = e.target.getAttribute('data-color');
+                document.getElementById('noteDisplay').style.color = inkColor;
+                document.getElementById('inkColorPicker').value = inkColor;
+                renderStaff(); 
+            });
+        });
+
         document.getElementById('inkColorPicker').addEventListener('input', (e) => {
             inkColor = e.target.value;
             document.getElementById('noteDisplay').style.color = inkColor;
-            renderStaff(); // Immediately redraw existing notes in the new color
+            renderStaff();
         });
 
+        // ---------------- AUDIO PLAYBACK ----------------
         document.getElementById('playBtn').addEventListener('click', () => {
             if (notesHistory.length === 0) return;
             if (audioContext.state === 'suspended') audioContext.resume();
@@ -234,6 +329,7 @@
             });
         });
 
+        // ---------------- CONTROLS ----------------
         document.getElementById('keySelect').addEventListener('change', (e) => {
             currentKey = e.target.value;
             let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"];
@@ -419,6 +515,7 @@
                 let beatsElapsed = elapsedMs * (targetBPM / 60000);
                 let newDur = calculateVexFlowDuration(beatsElapsed);
                 
+                // Optimized Redraw: Only trigger renderStaff if the duration literally changed
                 if (notesHistory[activeNoteIndex].duration !== newDur) {
                     notesHistory[activeNoteIndex].duration = newDur;
                     renderStaff();
@@ -522,7 +619,7 @@
             }
         }
 
-        // ---------------- AUDIO ENGINE ----------------
+        // ---------------- AUDIO ENGINE (OPTIMIZED) ----------------
         function noteFromPitch(frequency) {
             const noteNum = 12 * (Math.log(frequency / 440) / Math.log(2));
             return Math.round(noteNum) + 69;
@@ -559,7 +656,12 @@
         function updatePitch() {
             requestAnimationFrame(updatePitch);
             
+            // OPTIMIZATION: Stop running microphone math entirely if using MIDI
             if (inputSource === 'midi') return; 
+
+            // OPTIMIZATION: Frame Skipper (Runs at ~30fps instead of 60fps to save mobile battery)
+            frameCounter++;
+            if (frameCounter % 2 !== 0) return;
 
             let buffer = new Float32Array(analyser.fftSize);
             analyser.getFloatTimeDomainData(buffer);
@@ -586,7 +688,8 @@
                 }
             } else {
                 silenceFrames++;
-                let requiredSilence = isVoiceMode ? 15 : 5; 
+                // Adjusted silence frames due to frame skipper (half as many frames needed)
+                let requiredSilence = isVoiceMode ? 8 : 3; 
                 
                 if (silenceFrames > requiredSilence) {
                     activeNoteName = ""; 
@@ -607,7 +710,6 @@
                 microphone.connect(analyser);
                 updatePitch();
                 
-                // Unhide the main UI
                 document.getElementById('startBtn').style.display = 'none';
                 document.getElementById('menuToggle').style.display = 'block';
                 document.getElementById('mainMenu').classList.add('open');
