@@ -199,6 +199,42 @@
         let silenceFrames = 0; 
         const NOTES_PER_LINE = 8, LINES_PER_PAGE = 3;
 
+        // --- NEW: PYTHON BRIDGE FUNCTION ---
+        window.loadMusicXML = function(xmlContent) {
+            // Force the app into Practice Mode visually
+            isPracticeMode = true;
+            document.getElementById('tabPractice').classList.add('active');
+            document.getElementById('tabTranscribe').classList.remove('active');
+            document.getElementById('menuToggle').style.display = 'none';
+            document.getElementById('mainMenu').classList.remove('open');
+            document.getElementById('staffWrapper').style.display = 'none';
+            document.getElementById('uploadBtn').style.display = 'block';
+            document.getElementById('osmdWrapper').style.display = 'block';
+            document.getElementById('practiceStats').style.display = 'block';
+
+            if (!osmd) {
+                osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmdWrapper", {
+                    autoResize: true, drawTitle: true, followCursor: true
+                });
+            }
+
+            document.getElementById('noteDisplay').innerText = "Loading Score from App...";
+            document.getElementById('noteDisplay').style.color = inkColor;
+
+            osmd.load(xmlContent).then(function() {
+                osmd.render();
+                osmd.cursor.show();
+                resetScore();
+                skipRests();
+                document.getElementById('noteDisplay').innerText = "Play the blue note!";
+            }).catch(err => {
+                console.error(err);
+                document.getElementById('noteDisplay').innerText = "Error loading score!";
+                document.getElementById('noteDisplay').style.color = "#dc3545";
+            });
+        };
+        // -----------------------------------
+
         document.getElementById('tabTranscribe').addEventListener('click', () => {
             isPracticeMode = false;
             document.getElementById('tabTranscribe').classList.add('active');
@@ -267,7 +303,6 @@
 
         document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
-        // UPDATED: FileReader logic to correctly parse compressed .mxl files
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
             let file = e.target.files[0];
             if (!file) return;
@@ -275,26 +310,14 @@
             let reader = new FileReader();
             reader.onload = function(event) {
                 let fileContent = event.target.result;
-                document.getElementById('noteDisplay').innerText = "Loading Score...";
-                document.getElementById('noteDisplay').style.color = inkColor;
-                
-                osmd.load(fileContent).then(function() {
-                    osmd.render();
-                    osmd.cursor.show();
-                    resetScore();
-                    skipRests(); 
-                    document.getElementById('noteDisplay').innerText = "Play the blue note!";
-                }).catch(err => {
-                    document.getElementById('noteDisplay').innerText = "Error loading score!";
-                    document.getElementById('noteDisplay').style.color = "#dc3545";
-                });
+                // Since this uses the browser upload button, we use window.loadMusicXML to keep logic clean!
+                window.loadMusicXML(fileContent);
             };
 
-            // .mxl files are zipped binaries and must be read as a DataURL to work in OSMD
             if (file.name.toLowerCase().endsWith('.mxl')) {
                 reader.readAsDataURL(file);
             } else {
-                reader.readAsText(file); // Standard uncompressed .xml
+                reader.readAsText(file); 
             }
         });
 
