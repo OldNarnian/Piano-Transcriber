@@ -72,8 +72,8 @@
 
     <button id="startBtn">Start Application</button>
     
-    <input type="file" id="xmlUpload" accept=".xml,.musicxml" style="display: none;">
-    <button id="uploadBtn">📂 Upload Sheet Music (.xml)</button>
+    <input type="file" id="xmlUpload" accept=".xml,.musicxml,.mxl" style="display: none;">
+    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml)</button>
 
     <button id="menuToggle">☰ Controls & Settings</button>
     
@@ -171,11 +171,9 @@
         let isPracticeMode = false; 
         let osmd = null; 
         
-        // --- Scoring State ---
         let correctHits = 0;
         let mistakesMade = 0;
         
-        // --- Transcriber State ---
         const notesSharp = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
         const notesFlat  = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"];
         const keySignatures = { "C": [], "G": ["F#"], "D": ["F#", "C#"], "A": ["F#", "C#", "G#"], "E": ["F#", "C#", "G#", "D#"], "B": ["F#", "C#", "G#", "D#", "A#"], "F": ["Bb"], "Bb": ["Bb", "Eb"], "Eb": ["Bb", "Eb", "Ab"], "Ab": ["Bb", "Eb", "Ab", "Db"], "Db": ["Bb", "Eb", "Ab", "Db", "Gb"] };
@@ -201,15 +199,12 @@
         let silenceFrames = 0; 
         const NOTES_PER_LINE = 8, LINES_PER_PAGE = 3;
 
-        // ---------------- APP MODE TOGGLE LOGIC ----------------
         document.getElementById('tabTranscribe').addEventListener('click', () => {
             isPracticeMode = false;
             document.getElementById('tabTranscribe').classList.add('active');
             document.getElementById('tabPractice').classList.remove('active');
-            
             document.getElementById('menuToggle').style.display = 'block';
             document.getElementById('staffWrapper').style.display = 'block';
-            
             document.getElementById('uploadBtn').style.display = 'none';
             document.getElementById('osmdWrapper').style.display = 'none';
             document.getElementById('practiceStats').style.display = 'none';
@@ -221,11 +216,9 @@
             isPracticeMode = true;
             document.getElementById('tabPractice').classList.add('active');
             document.getElementById('tabTranscribe').classList.remove('active');
-            
             document.getElementById('menuToggle').style.display = 'none';
             document.getElementById('mainMenu').classList.remove('open');
             document.getElementById('staffWrapper').style.display = 'none';
-            
             document.getElementById('uploadBtn').style.display = 'block';
             document.getElementById('osmdWrapper').style.display = 'block';
             document.getElementById('practiceStats').style.display = 'block';
@@ -241,7 +234,6 @@
             }
         });
 
-        // ---------------- PRACTICE MODE: SCORING & UPLOAD ----------------
         function resetScore() {
             correctHits = 0;
             mistakesMade = 0;
@@ -273,31 +265,39 @@
             }
         }
 
-        document.getElementById('uploadBtn').addEventListener('click', () => {
-            document.getElementById('xmlUpload').click();
-        });
+        document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
+        // UPDATED: FileReader logic to correctly parse compressed .mxl files
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
             let file = e.target.files[0];
             if (!file) return;
 
             let reader = new FileReader();
             reader.onload = function(event) {
-                let xmlContent = event.target.result;
+                let fileContent = event.target.result;
                 document.getElementById('noteDisplay').innerText = "Loading Score...";
+                document.getElementById('noteDisplay').style.color = inkColor;
                 
-                osmd.load(xmlContent).then(function() {
+                osmd.load(fileContent).then(function() {
                     osmd.render();
                     osmd.cursor.show();
                     resetScore();
-                    skipRests(); // Skip initial rests if the song starts with a rest
+                    skipRests(); 
                     document.getElementById('noteDisplay').innerText = "Play the blue note!";
+                }).catch(err => {
+                    document.getElementById('noteDisplay').innerText = "Error loading score!";
+                    document.getElementById('noteDisplay').style.color = "#dc3545";
                 });
             };
-            reader.readAsText(file);
+
+            // .mxl files are zipped binaries and must be read as a DataURL to work in OSMD
+            if (file.name.toLowerCase().endsWith('.mxl')) {
+                reader.readAsDataURL(file);
+            } else {
+                reader.readAsText(file); // Standard uncompressed .xml
+            }
         });
 
-        // ---------------- PRACTICE MODE: MIDI CHECKER ----------------
         function handlePracticeMidi(midiNote) {
             if (!osmd || !osmd.cursor || osmd.cursor.hidden) return;
             if (osmd.cursor.Iterator.EndReached) return; 
@@ -309,16 +309,13 @@
             for (let entry of currentVoiceEntries) {
                 if (entry && entry.Notes) {
                     for (let note of entry.Notes) {
-                        // OSMD maps C4(60) as halfTone 48. Add 12 for standard MIDI.
                         if (note.Pitch) expectedNotes.push(note.Pitch.getHalfTone() + 12);
                     }
                 }
             }
 
             if (expectedNotes.includes(midiNote)) {
-                // Correct Hit!
-                correctHits++;
-                updateScoreUI();
+                correctHits++; updateScoreUI();
                 
                 let oldText = document.getElementById('noteDisplay').innerText;
                 document.getElementById('noteDisplay').innerText = "Perfect!";
@@ -333,7 +330,6 @@
                 osmd.cursor.next();
                 skipRests();
 
-                // Check for end of song
                 if (osmd.cursor.Iterator.EndReached) {
                     let totalAttempts = correctHits + mistakesMade;
                     let finalAccuracy = totalAttempts === 0 ? 100 : Math.round((correctHits / totalAttempts) * 100);
@@ -341,9 +337,7 @@
                     document.getElementById('noteDisplay').style.color = inkColor;
                 }
             } else {
-                // Wrong Note!
-                mistakesMade++;
-                updateScoreUI();
+                mistakesMade++; updateScoreUI();
                 
                 let oldText = document.getElementById('noteDisplay').innerText;
                 document.getElementById('noteDisplay').innerText = "Oops!";
@@ -357,7 +351,6 @@
             }
         }
 
-        // ---------------- TRANSCRIBER ENGINE ----------------
         function applyInkColor(context) { context.setFillStyle(inkColor); context.setStrokeStyle(inkColor); }
 
         function drawEmptyStaff() {
@@ -372,7 +365,6 @@
         }
         drawEmptyStaff();
 
-        // ---------------- CORE MIDI ROUTER ----------------
         function getMIDIMessage(midiMessage) {
             if (inputSource !== 'midi') return;
             
@@ -401,51 +393,32 @@
             }
         }
 
-        // ---------------- MENU & UI EVENT LISTENERS ----------------
-        document.getElementById('menuToggle').addEventListener('click', () => {
-            document.getElementById('mainMenu').classList.toggle('open');
-        });
+        document.getElementById('menuToggle').addEventListener('click', () => { document.getElementById('mainMenu').classList.toggle('open'); });
 
         document.querySelectorAll('.bg-swatch').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                let color = e.target.getAttribute('data-color');
-                document.body.style.backgroundColor = color;
-                document.getElementById('bgColorPicker').value = color;
+                let color = e.target.getAttribute('data-color'); document.body.style.backgroundColor = color; document.getElementById('bgColorPicker').value = color;
             });
         });
         document.getElementById('bgColorPicker').addEventListener('input', (e) => { document.body.style.backgroundColor = e.target.value; });
 
         document.querySelectorAll('.ink-swatch').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                inkColor = e.target.getAttribute('data-color');
-                document.getElementById('noteDisplay').style.color = inkColor;
-                renderStaff(); 
+                inkColor = e.target.getAttribute('data-color'); document.getElementById('noteDisplay').style.color = inkColor; renderStaff(); 
             });
         });
-        document.getElementById('inkColorPicker').addEventListener('input', (e) => {
-            inkColor = e.target.value;
-            document.getElementById('noteDisplay').style.color = inkColor;
-            renderStaff();
-        });
+        document.getElementById('inkColorPicker').addEventListener('input', (e) => { inkColor = e.target.value; document.getElementById('noteDisplay').style.color = inkColor; renderStaff(); });
 
         document.getElementById('keySelect').addEventListener('change', (e) => {
-            currentKey = e.target.value;
-            let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"];
-            currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp;
-            document.getElementById('clearBtn').click(); 
+            currentKey = e.target.value; let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"]; currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp; document.getElementById('clearBtn').click(); 
         });
 
-        document.getElementById('bpmSlider').addEventListener('input', (e) => {
-            targetBPM = parseInt(e.target.value);
-            document.getElementById('bpmLabel').innerText = targetBPM;
-        });
-
+        document.getElementById('bpmSlider').addEventListener('input', (e) => { targetBPM = parseInt(e.target.value); document.getElementById('bpmLabel').innerText = targetBPM; });
         document.getElementById('quantSelect').addEventListener('change', (e) => { minDurationBeats = parseFloat(e.target.value); });
-
+        
         document.getElementById('clearBtn').addEventListener('click', () => {
             notesHistory = []; activeNoteName = ""; activeNoteIndex = -1; activeMidiNotes.clear(); pitchBuffer = []; 
-            document.getElementById("staff").innerHTML = ""; drawEmptyStaff();
-            document.getElementById('noteDisplay').innerText = "--";
+            document.getElementById("staff").innerHTML = ""; drawEmptyStaff(); document.getElementById('noteDisplay').innerText = "--";
         });
 
         document.getElementById('modeToggle').addEventListener('click', (e) => {
@@ -456,53 +429,34 @@
         });
 
         document.getElementById('instrumentToggle').addEventListener('click', (e) => {
-            isVoiceMode = !isVoiceMode;
-            e.target.innerText = isVoiceMode ? "Input: Voice" : "Input: Piano";
-            e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; pitchBuffer = []; 
+            isVoiceMode = !isVoiceMode; e.target.innerText = isVoiceMode ? "Input: Voice" : "Input: Piano"; e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; pitchBuffer = []; 
         });
 
         document.getElementById('sourceToggle').addEventListener('click', async (e) => {
             if (inputSource === 'mic') {
                 try {
                     const midiAccess = await navigator.requestMIDIAccess();
-                    if (midiAccess.inputs.size === 0) {
-                        alert("Browser has permission, but sees 0 keyboards! Check your OTG adapter, phone OTG settings, and ensure the piano is on.");
-                        return; 
-                    } else {
+                    if (midiAccess.inputs.size === 0) { alert("Browser has permission, but sees 0 keyboards! Check your OTG adapter, phone OTG settings, and ensure the piano is on."); return; } 
+                    else {
                         let deviceNames = [];
-                        for (let input of midiAccess.inputs.values()) {
-                            deviceNames.push(input.name || "Unknown Keyboard");
-                            input.onmidimessage = getMIDIMessage;
-                        }
+                        for (let input of midiAccess.inputs.values()) { deviceNames.push(input.name || "Unknown Keyboard"); input.onmidimessage = getMIDIMessage; }
                     }
-                    inputSource = 'midi';
-                    e.target.innerText = "Source: MIDI";
-                    e.target.style.backgroundColor = "#8e44ad"; 
-                    document.getElementById('sliderContainer').style.display = 'none';
-                    document.getElementById('instrumentToggle').style.display = 'none';
+                    inputSource = 'midi'; e.target.innerText = "Source: MIDI"; e.target.style.backgroundColor = "#8e44ad"; 
+                    document.getElementById('sliderContainer').style.display = 'none'; document.getElementById('instrumentToggle').style.display = 'none';
                 } catch (err) { alert("MIDI could not be accessed."); }
             } else {
-                inputSource = 'mic';
-                e.target.innerText = "Source: Mic";
-                e.target.style.backgroundColor = "#fd7e14"; 
-                document.getElementById('sliderContainer').style.display = 'flex';
-                document.getElementById('instrumentToggle').style.display = 'inline-block';
+                inputSource = 'mic'; e.target.innerText = "Source: Mic"; e.target.style.backgroundColor = "#fd7e14"; 
+                document.getElementById('sliderContainer').style.display = 'flex'; document.getElementById('instrumentToggle').style.display = 'inline-block';
             }
             document.getElementById('clearBtn').click();
         });
 
-        document.getElementById('volSlider').addEventListener('input', (e) => {
-            volumeThreshold = parseFloat(e.target.value);
-            document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2);
-        });
+        document.getElementById('volSlider').addEventListener('input', (e) => { volumeThreshold = parseFloat(e.target.value); document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2); });
 
         document.getElementById('pdfBtn').addEventListener('click', () => {
-            const element = document.getElementById('staff');
-            const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } };
-            html2pdf().set(opt).from(element).save();
+            const element = document.getElementById('staff'); const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } }; html2pdf().set(opt).from(element).save();
         });
 
-        // ---------------- SAVE/LOAD & PLAYBACK ----------------
         document.getElementById('saveBtn').addEventListener('click', () => {
             if(notesHistory.length === 0) { alert("The staff is empty! Play some notes before saving."); return; }
             const saveData = { notes: notesHistory, key: currentKey, bpm: targetBPM, ink: inkColor, bg: document.body.style.backgroundColor };
@@ -518,72 +472,56 @@
                 document.getElementById('keySelect').value = currentKey; document.getElementById('bpmSlider').value = targetBPM; document.getElementById('bpmLabel').innerText = targetBPM;
                 document.getElementById('inkColorPicker').value = inkColor; document.getElementById('noteDisplay').style.color = inkColor;
                 let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"]; currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp;
-                activeNoteName = ""; activeNoteIndex = -1; activeMidiNotes.clear();
-                renderStaff();
+                activeNoteName = ""; activeNoteIndex = -1; activeMidiNotes.clear(); renderStaff();
                 const btn = document.getElementById('loadBtn'); btn.innerText = "✓ Loaded!"; setTimeout(() => btn.innerText = "📂 Load", 2000);
             } else { alert("No saved song found on this device."); }
         });
 
         document.getElementById('playBtn').addEventListener('click', () => {
-            if (notesHistory.length === 0) return;
-            if (audioContext.state === 'suspended') audioContext.resume();
-            let now = audioContext.currentTime + 0.1; 
-            const beatDuration = 60 / targetBPM;
-            const durMap = { "w": 4, "h": 2, "q": 1, "8": 0.5, "16": 0.25 };
+            if (notesHistory.length === 0) return; if (audioContext.state === 'suspended') audioContext.resume();
+            let now = audioContext.currentTime + 0.1; const beatDuration = 60 / targetBPM; const durMap = { "w": 4, "h": 2, "q": 1, "8": 0.5, "16": 0.25 };
             notesHistory.forEach(noteObj => {
-                let beats = durMap[noteObj.duration] || 1;
-                let durationSeconds = beats * beatDuration;
+                let beats = durMap[noteObj.duration] || 1; let durationSeconds = beats * beatDuration;
                 noteObj.midiNotes.forEach(midiNum => {
-                    let freq = 440 * Math.pow(2, (midiNum - 69) / 12);
-                    let osc = audioContext.createOscillator(); let gain = audioContext.createGain();
+                    let freq = 440 * Math.pow(2, (midiNum - 69) / 12); let osc = audioContext.createOscillator(); let gain = audioContext.createGain();
                     osc.type = 'triangle'; osc.frequency.value = freq;
                     gain.gain.setValueAtTime(0, now); gain.gain.linearRampToValueAtTime(0.3, now + 0.02); gain.gain.exponentialRampToValueAtTime(0.001, now + durationSeconds - 0.02); 
-                    osc.connect(gain); gain.connect(audioContext.destination);
-                    osc.start(now); osc.stop(now + durationSeconds);
+                    osc.connect(gain); gain.connect(audioContext.destination); osc.start(now); osc.stop(now + durationSeconds);
                 });
                 now += durationSeconds;
             });
         });
 
-        // ---------------- TRANSCRIBER MATH & DRAWING ----------------
         function calculateVexFlowDuration(elapsedBeats) {
-            const allowed = [4, 2, 1, 0.5, 0.25].filter(b => b >= minDurationBeats);
-            if (allowed.length === 0) allowed.push(minDurationBeats);
+            const allowed = [4, 2, 1, 0.5, 0.25].filter(b => b >= minDurationBeats); if (allowed.length === 0) allowed.push(minDurationBeats);
             let closest = allowed[0]; let minDiff = Math.abs(elapsedBeats - closest);
             for(let i = 1; i < allowed.length; i++) { let diff = Math.abs(elapsedBeats - allowed[i]); if(diff < minDiff) { minDiff = diff; closest = allowed[i]; } }
             if (closest === 4) return "w"; if (closest === 2) return "h"; if (closest === 1) return "q"; if (closest === 0.5) return "8"; if (closest === 0.25) return "16"; return "q"; 
         }
 
         function getAccidental(noteName, key) {
-            let baseLetter = noteName[0]; let isSharp = noteName.includes("#"); let isFlat = noteName.includes("b");
-            let noteAccidental = isSharp ? "#" : (isFlat ? "b" : "n");
-            let sigMatch = keySignatures[key].find(n => n.startsWith(baseLetter));
-            let sigAccidental = sigMatch ? (sigMatch.includes("#") ? "#" : "b") : "n";
-            if (noteAccidental !== sigAccidental) return noteAccidental;
-            return null; 
+            let baseLetter = noteName[0]; let isSharp = noteName.includes("#"); let isFlat = noteName.includes("b"); let noteAccidental = isSharp ? "#" : (isFlat ? "b" : "n");
+            let sigMatch = keySignatures[key].find(n => n.startsWith(baseLetter)); let sigAccidental = sigMatch ? (sigMatch.includes("#") ? "#" : "b") : "n";
+            if (noteAccidental !== sigAccidental) return noteAccidental; return null; 
         }
 
         function registerNotesAndDraw(notesArray) {
-            let validNotes = notesArray.filter(n => n >= 21 && n <= 108);
-            if (validNotes.length === 0) return;
+            let validNotes = notesArray.filter(n => n >= 21 && n <= 108); if (validNotes.length === 0) return;
             let vfKeys = []; let displayNames = []; let accidentals = [];
             validNotes.forEach(note => {
                 let noteName = currentNoteStrings[note % 12]; let octave = Math.floor(note / 12) - 1; 
                 vfKeys.push(noteName.toLowerCase() + "/" + octave); displayNames.push(noteName + octave); accidentals.push(getAccidental(noteName, currentKey)); 
             });
-            document.getElementById('noteDisplay').innerText = displayNames.join(" + ");
-            let chordID = vfKeys.join("|"); 
+            document.getElementById('noteDisplay').innerText = displayNames.join(" + "); let chordID = vfKeys.join("|"); 
                 
             if (activeNoteName !== chordID) {
                 activeNoteName = chordID; activeNoteStartTime = Date.now();
-                let lowestOctave = Math.floor(validNotes[0] / 12) - 1; const clef = lowestOctave >= 4 ? "treble" : "bass";
-                let initialDur = calculateVexFlowDuration(0); 
+                let lowestOctave = Math.floor(validNotes[0] / 12) - 1; const clef = lowestOctave >= 4 ? "treble" : "bass"; let initialDur = calculateVexFlowDuration(0); 
                 let newNoteData = { keys: vfKeys, clef: clef, accidentals: accidentals, duration: initialDur, midiNotes: validNotes };
                 if (layoutMode === 'single') { notesHistory = [newNoteData]; } else { notesHistory.push(newNoteData); }
                 activeNoteIndex = notesHistory.length - 1; renderStaff();
             } else {
-                let elapsedMs = Date.now() - activeNoteStartTime; let beatsElapsed = elapsedMs * (targetBPM / 60000);
-                let newDur = calculateVexFlowDuration(beatsElapsed);
+                let elapsedMs = Date.now() - activeNoteStartTime; let beatsElapsed = elapsedMs * (targetBPM / 60000); let newDur = calculateVexFlowDuration(beatsElapsed);
                 if (notesHistory[activeNoteIndex].duration !== newDur) { notesHistory[activeNoteIndex].duration = newDur; renderStaff(); }
             }
         }
@@ -622,7 +560,6 @@
             }
         }
 
-        // ---------------- AUDIO PITCH MATH ----------------
         function noteFromPitch(frequency) { return Math.round(12 * (Math.log(frequency / 440) / Math.log(2))) + 69; }
 
         function autoCorrelate(buf, sampleRate) {
