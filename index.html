@@ -199,6 +199,7 @@
         let silenceFrames = 0; 
         const NOTES_PER_LINE = 8, LINES_PER_PAGE = 3;
 
+        // ---------------- UI PREPARATION HELPER ----------------
         function preparePracticeUI() {
             isPracticeMode = true;
             document.getElementById('tabPractice').classList.add('active');
@@ -216,32 +217,6 @@
                 });
             }
         }
-
-        window.loadMusicXML = function(xmlContent) {
-            preparePracticeUI();
-            
-            if (!xmlContent) return;
-
-            document.getElementById('noteDisplay').innerText = "Parsing Score...";
-            document.getElementById('noteDisplay').style.color = inkColor;
-
-            if (typeof xmlContent === 'string') {
-                xmlContent = xmlContent.replace(/^\uFEFF/, '').trim();
-            }
-
-            setTimeout(() => {
-                osmd.load(xmlContent).then(function() {
-                    osmd.render();
-                    osmd.cursor.show();
-                    resetScore();
-                    skipRests();
-                    document.getElementById('noteDisplay').innerText = "Play the blue note!";
-                }).catch(err => {
-                    document.getElementById('noteDisplay').innerText = "Error loading score!";
-                    document.getElementById('noteDisplay').style.color = "#dc3545";
-                });
-            }, 50);
-        };
 
         document.getElementById('tabTranscribe').addEventListener('click', () => {
             isPracticeMode = false;
@@ -296,29 +271,42 @@
 
         document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
-        // --- CLEAN FIX: Pass the raw file directly to OSMD ---
+        // --- THE FIX: Using FileReader with readAsBinaryString for .mxl files ---
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
             let file = e.target.files[0];
             if (!file) return;
 
             preparePracticeUI();
-            document.getElementById('noteDisplay').innerText = "Loading local file...";
+            document.getElementById('noteDisplay').innerText = "Unpacking score...";
             document.getElementById('noteDisplay').style.color = inkColor;
 
-            setTimeout(() => {
-                // OSMD accepts the pure File object, skipping all string reading completely
-                osmd.load(file).then(function() {
-                    osmd.render();
-                    osmd.cursor.show();
-                    resetScore();
-                    skipRests(); 
-                    document.getElementById('noteDisplay').innerText = "Play the blue note!";
-                }).catch(err => {
-                    console.error(err);
-                    document.getElementById('noteDisplay').innerText = "Error loading file!";
-                    document.getElementById('noteDisplay').style.color = "#dc3545";
-                });
-            }, 50);
+            let reader = new FileReader();
+            
+            reader.onload = function(event) {
+                let content = event.target.result;
+                
+                // Delay rendering by 100ms so the UI container has a non-zero width on screen
+                setTimeout(() => {
+                    osmd.load(content).then(function() {
+                        osmd.render();
+                        osmd.cursor.show();
+                        resetScore();
+                        skipRests(); 
+                        document.getElementById('noteDisplay').innerText = "Play the blue note!";
+                    }).catch(err => {
+                        console.error("OSMD Parsing Error:", err);
+                        document.getElementById('noteDisplay').innerText = "Error parsing file format!";
+                        document.getElementById('noteDisplay').style.color = "#dc3545";
+                    });
+                }, 100);
+            };
+
+            // OSMD specifically needs BinaryString for compressed .mxl files
+            if (file.name.toLowerCase().endsWith('.mxl')) {
+                reader.readAsBinaryString(file);
+            } else {
+                reader.readAsText(file); 
+            }
         });
 
         function handlePracticeMidi(midiNote) {
