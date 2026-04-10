@@ -73,7 +73,7 @@
     <button id="startBtn">Start Application</button>
     
     <input type="file" id="xmlUpload" accept=".xml,.musicxml,.mxl" style="display: none;">
-    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml / .musicxml)</button>
+    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml)</button>
 
     <button id="menuToggle">☰ Controls & Settings</button>
     
@@ -199,6 +199,46 @@
         let silenceFrames = 0; 
         const NOTES_PER_LINE = 8, LINES_PER_PAGE = 3;
 
+        // ---------------- XML MATH AUTO-SCALER ----------------
+        // Scans the raw XML, forces the <divisions> (beats per quarter note) to 4 
+        // so that a 16th note exactly equals 1 duration unit. 
+        // Scales all other durations in the file to match, removing decimals.
+        function autoScaleXML(xmlString) {
+            try {
+                let parser = new DOMParser();
+                let xmlDoc = parser.parseFromString(xmlString, "text/xml");
+                
+                let divisionsElements = xmlDoc.getElementsByTagName("divisions");
+                if (divisionsElements.length > 0) {
+                    let oldDivisions = parseFloat(divisionsElements[0].textContent);
+                    
+                    // Target: 4 divisions per quarter note (making a 16th note = 1)
+                    let targetDivisions = 4; 
+                    let scalingFactor = targetDivisions / oldDivisions;
+                    
+                    // Update the global divisions tracker
+                    for (let i = 0; i < divisionsElements.length; i++) {
+                        divisionsElements[i].textContent = targetDivisions.toString();
+                    }
+                    
+                    // Apply the multiplier to every individual note duration
+                    let durationElements = xmlDoc.getElementsByTagName("duration");
+                    for (let i = 0; i < durationElements.length; i++) {
+                        let oldDur = parseFloat(durationElements[i].textContent);
+                        // Multiply, round to prevent engine-crashing decimals, and ensure it's at least 1
+                        let newDur = Math.max(1, Math.round(oldDur * scalingFactor));
+                        durationElements[i].textContent = newDur.toString();
+                    }
+                }
+                
+                let serializer = new XMLSerializer();
+                return serializer.serializeToString(xmlDoc);
+            } catch (e) {
+                console.error("Auto-scale failed, falling back to original string:", e);
+                return xmlString; 
+            }
+        }
+
         // ---------------- UI PREPARATION HELPER ----------------
         function preparePracticeUI() {
             isPracticeMode = true;
@@ -271,7 +311,6 @@
 
         document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
-        // NATIVE HTML JS FILE UPLOADER (Handles .xml, .musicxml, and .mxl natively)
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
             let file = e.target.files[0];
             if (!file) return;
@@ -280,32 +319,45 @@
             document.getElementById('noteDisplay').innerText = "Unpacking score...";
             document.getElementById('noteDisplay').style.color = inkColor;
 
-            let reader = new FileReader();
-            
-            reader.onload = function(event) {
-                let content = event.target.result;
-                
-                // Delay rendering by 100ms so the UI container has a non-zero width on screen
+            if (file.name.toLowerCase().endsWith('.mxl')) {
+                // .mxl is a zipped binary. We let OSMD handle the file object natively. 
                 setTimeout(() => {
-                    osmd.load(content).then(function() {
+                    osmd.load(file).then(function() {
                         osmd.render();
                         osmd.cursor.show();
                         resetScore();
                         skipRests(); 
                         document.getElementById('noteDisplay').innerText = "Play the blue note!";
                     }).catch(err => {
-                        console.error("OSMD Parsing Error:", err);
-                        document.getElementById('noteDisplay').innerText = "Error parsing file format!";
+                        console.error(err);
+                        document.getElementById('noteDisplay').innerText = "Error loading .mxl file!";
                         document.getElementById('noteDisplay').style.color = "#dc3545";
                     });
-                }, 100);
-            };
-
-            // OSMD specifically needs BinaryString for compressed .mxl files
-            if (file.name.toLowerCase().endsWith('.mxl')) {
-                reader.readAsBinaryString(file);
+                }, 50);
             } else {
-                // Both .xml and .musicxml are uncompressed and read perfectly as plain text
+                // .xml or .musicxml are plain text. We intercept them, scale the math, and pass the string.
+                let reader = new FileReader();
+                reader.onload = function(event) {
+                    let rawXML = event.target.result;
+                    
+                    // Strip hidden BOM characters and run through our custom mathematical Auto-Scaler
+                    let cleanXML = rawXML.replace(/^\uFEFF/, '').trim();
+                    let scaledXML = autoScaleXML(cleanXML);
+
+                    setTimeout(() => {
+                        osmd.load(scaledXML).then(function() {
+                            osmd.render();
+                            osmd.cursor.show();
+                            resetScore();
+                            skipRests(); 
+                            document.getElementById('noteDisplay').innerText = "Play the blue note!";
+                        }).catch(err => {
+                            console.error(err);
+                            document.getElementById('noteDisplay').innerText = "Error loading .xml file!";
+                            document.getElementById('noteDisplay').style.color = "#dc3545";
+                        });
+                    }, 50);
+                };
                 reader.readAsText(file); 
             }
         });
