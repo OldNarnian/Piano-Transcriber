@@ -73,7 +73,7 @@
     <button id="startBtn">Start Application</button>
     
     <input type="file" id="xmlUpload" accept=".xml,.musicxml,.mxl" style="display: none;">
-    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml)</button>
+    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml / .musicxml)</button>
 
     <button id="menuToggle">☰ Controls & Settings</button>
     
@@ -271,7 +271,7 @@
 
         document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
-        // --- THE FIX: Using FileReader with readAsBinaryString for .mxl files ---
+        // NATIVE HTML JS FILE UPLOADER (Handles .xml, .musicxml, and .mxl natively)
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
             let file = e.target.files[0];
             if (!file) return;
@@ -305,6 +305,7 @@
             if (file.name.toLowerCase().endsWith('.mxl')) {
                 reader.readAsBinaryString(file);
             } else {
+                // Both .xml and .musicxml are uncompressed and read perfectly as plain text
                 reader.readAsText(file); 
             }
         });
