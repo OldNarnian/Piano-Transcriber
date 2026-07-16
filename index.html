@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piano Transcriber & Practice Hub</title>
     
+    <!-- VexFlow and PDF Export (For Transcription) -->
     <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
+    <!-- OpenSheetMusicDisplay (For Practice Mode) -->
     <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.8/build/opensheetmusicdisplay.min.js"></script>
     
+    <!-- Google Fonts: Dancing Script -->
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@500;700&display=swap" rel="stylesheet">
     
     <style>
@@ -55,7 +58,8 @@
         #noteDisplay { font-size: 55px; font-weight: bold; color: #000000; margin-top: 10px; transition: color 0.1s;}
         #practiceStats { font-size: 28px; color: #555; display: none; margin-top: -10px; margin-bottom: 10px; }
         
-        .staff-wrapper { width: 95%; margin: 10px auto; overflow-x: auto; background: transparent; min-height: 250px; white-space: nowrap; }
+        /* Taller wrapper for the Grand Staff */
+        .staff-wrapper { width: 95%; margin: 10px auto; overflow-x: auto; background: transparent; min-height: 350px; white-space: nowrap; }
         #staff { display: inline-block; padding: 10px; } 
         
         #osmdWrapper { width: 95%; margin: 10px auto; background: white; border-radius: 8px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); display: none; text-align: left; }
@@ -73,7 +77,7 @@
     <button id="startBtn">Start Application</button>
     
     <input type="file" id="xmlUpload" accept=".xml,.musicxml,.mxl" style="display: none;">
-    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml)</button>
+    <button id="uploadBtn">📂 Upload Sheet Music (.mxl / .xml / .musicxml)</button>
 
     <button id="menuToggle">☰ Controls & Settings</button>
     
@@ -192,54 +196,37 @@
         let activeNoteName = ""; 
         let activeNoteStartTime = 0;
         let activeNoteIndex = -1;
-        let activeMidiNotes = new Set();
-        let chordRenderTimer = null;
+        
+        // --- STRIKE BUCKET FOR LEGATO FIX ---
+        let activeMidiNotes = new Set(); 
+        let strikeNotes = new Set();     
+        let strikeTimer = null;
+        
         let frameCounter = 0; 
         let pitchBuffer = []; 
         let silenceFrames = 0; 
         const NOTES_PER_LINE = 8, LINES_PER_PAGE = 3;
 
-        // ---------------- XML MATH AUTO-SCALER ----------------
-        // Scans the raw XML, forces the <divisions> (beats per quarter note) to 4 
-        // so that a 16th note exactly equals 1 duration unit. 
-        // Scales all other durations in the file to match, removing decimals.
+        // XML Math Auto-Scaler for broken uncompressed files
         function autoScaleXML(xmlString) {
             try {
-                let parser = new DOMParser();
-                let xmlDoc = parser.parseFromString(xmlString, "text/xml");
-                
+                let parser = new DOMParser(); let xmlDoc = parser.parseFromString(xmlString, "text/xml");
                 let divisionsElements = xmlDoc.getElementsByTagName("divisions");
                 if (divisionsElements.length > 0) {
                     let oldDivisions = parseFloat(divisionsElements[0].textContent);
-                    
-                    // Target: 4 divisions per quarter note (making a 16th note = 1)
-                    let targetDivisions = 4; 
-                    let scalingFactor = targetDivisions / oldDivisions;
-                    
-                    // Update the global divisions tracker
-                    for (let i = 0; i < divisionsElements.length; i++) {
-                        divisionsElements[i].textContent = targetDivisions.toString();
-                    }
-                    
-                    // Apply the multiplier to every individual note duration
+                    let targetDivisions = 4; let scalingFactor = targetDivisions / oldDivisions;
+                    for (let i = 0; i < divisionsElements.length; i++) divisionsElements[i].textContent = targetDivisions.toString();
                     let durationElements = xmlDoc.getElementsByTagName("duration");
                     for (let i = 0; i < durationElements.length; i++) {
                         let oldDur = parseFloat(durationElements[i].textContent);
-                        // Multiply, round to prevent engine-crashing decimals, and ensure it's at least 1
                         let newDur = Math.max(1, Math.round(oldDur * scalingFactor));
                         durationElements[i].textContent = newDur.toString();
                     }
                 }
-                
-                let serializer = new XMLSerializer();
-                return serializer.serializeToString(xmlDoc);
-            } catch (e) {
-                console.error("Auto-scale failed, falling back to original string:", e);
-                return xmlString; 
-            }
+                return new XMLSerializer().serializeToString(xmlDoc);
+            } catch (e) { return xmlString; }
         }
 
-        // ---------------- UI PREPARATION HELPER ----------------
         function preparePracticeUI() {
             isPracticeMode = true;
             document.getElementById('tabPractice').classList.add('active');
@@ -251,11 +238,7 @@
             document.getElementById('osmdWrapper').style.display = 'block';
             document.getElementById('practiceStats').style.display = 'block';
             
-            if (!osmd) {
-                osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmdWrapper", {
-                    autoResize: true, drawTitle: true, followCursor: true
-                });
-            }
+            if (!osmd) { osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("osmdWrapper", { autoResize: true, drawTitle: true, followCursor: true }); }
         }
 
         document.getElementById('tabTranscribe').addEventListener('click', () => {
@@ -272,17 +255,11 @@
         });
 
         document.getElementById('tabPractice').addEventListener('click', () => {
-            preparePracticeUI();
-            resetScore();
-            document.getElementById('noteDisplay').innerText = "Upload a score to begin";
-            document.getElementById('noteDisplay').style.color = inkColor;
+            preparePracticeUI(); resetScore();
+            document.getElementById('noteDisplay').innerText = "Upload a score to begin"; document.getElementById('noteDisplay').style.color = inkColor;
         });
 
-        function resetScore() {
-            correctHits = 0;
-            mistakesMade = 0;
-            updateScoreUI();
-        }
+        function resetScore() { correctHits = 0; mistakesMade = 0; updateScoreUI(); }
 
         function updateScoreUI() {
             let totalAttempts = correctHits + mistakesMade;
@@ -293,15 +270,10 @@
         function skipRests() {
             if (!osmd || !osmd.cursor) return;
             while (!osmd.cursor.Iterator.EndReached) {
-                let nextEntries = osmd.cursor.Iterator.CurrentVoiceEntries;
-                let isPlayableNote = false;
+                let nextEntries = osmd.cursor.Iterator.CurrentVoiceEntries; let isPlayableNote = false;
                 if (nextEntries) {
                     for (let entry of nextEntries) {
-                        if (entry && entry.Notes) {
-                            for (let n of entry.Notes) {
-                                if (n.Pitch) isPlayableNote = true; 
-                            }
-                        }
+                        if (entry && entry.Notes) { for (let n of entry.Notes) { if (n.Pitch) isPlayableNote = true; } }
                     }
                 }
                 if (isPlayableNote) break; 
@@ -312,49 +284,34 @@
         document.getElementById('uploadBtn').addEventListener('click', () => { document.getElementById('xmlUpload').click(); });
 
         document.getElementById('xmlUpload').addEventListener('change', (e) => {
-            let file = e.target.files[0];
-            if (!file) return;
-
-            preparePracticeUI();
-            document.getElementById('noteDisplay').innerText = "Unpacking score...";
-            document.getElementById('noteDisplay').style.color = inkColor;
+            let file = e.target.files[0]; if (!file) return;
+            preparePracticeUI(); document.getElementById('noteDisplay').innerText = "Unpacking score..."; document.getElementById('noteDisplay').style.color = inkColor;
 
             if (file.name.toLowerCase().endsWith('.mxl')) {
-                // .mxl is a zipped binary. We let OSMD handle the file object natively. 
-                setTimeout(() => {
-                    osmd.load(file).then(function() {
-                        osmd.render();
-                        osmd.cursor.show();
-                        resetScore();
-                        skipRests(); 
-                        document.getElementById('noteDisplay').innerText = "Play the blue note!";
-                    }).catch(err => {
-                        console.error(err);
-                        document.getElementById('noteDisplay').innerText = "Error loading .mxl file!";
-                        document.getElementById('noteDisplay').style.color = "#dc3545";
-                    });
-                }, 50);
-            } else {
-                // .xml or .musicxml are plain text. We intercept them, scale the math, and pass the string.
+                // Correct Binary Reader for .mxl Zip Files
                 let reader = new FileReader();
                 reader.onload = function(event) {
-                    let rawXML = event.target.result;
-                    
-                    // Strip hidden BOM characters and run through our custom mathematical Auto-Scaler
-                    let cleanXML = rawXML.replace(/^\uFEFF/, '').trim();
-                    let scaledXML = autoScaleXML(cleanXML);
-
                     setTimeout(() => {
-                        osmd.load(scaledXML).then(function() {
-                            osmd.render();
-                            osmd.cursor.show();
-                            resetScore();
-                            skipRests(); 
+                        osmd.load(event.target.result).then(function() {
+                            osmd.render(); osmd.cursor.show(); resetScore(); skipRests(); 
                             document.getElementById('noteDisplay').innerText = "Play the blue note!";
                         }).catch(err => {
-                            console.error(err);
-                            document.getElementById('noteDisplay').innerText = "Error loading .xml file!";
-                            document.getElementById('noteDisplay').style.color = "#dc3545";
+                            document.getElementById('noteDisplay').innerText = "Error loading .mxl file!"; document.getElementById('noteDisplay').style.color = "#dc3545";
+                        });
+                    }, 50);
+                };
+                reader.readAsBinaryString(file);
+            } else {
+                let reader = new FileReader();
+                reader.onload = function(event) {
+                    let cleanXML = event.target.result.replace(/^\uFEFF/, '').trim();
+                    let scaledXML = autoScaleXML(cleanXML);
+                    setTimeout(() => {
+                        osmd.load(scaledXML).then(function() {
+                            osmd.render(); osmd.cursor.show(); resetScore(); skipRests(); 
+                            document.getElementById('noteDisplay').innerText = "Play the blue note!";
+                        }).catch(err => {
+                            document.getElementById('noteDisplay').innerText = "Error loading .xml file!"; document.getElementById('noteDisplay').style.color = "#dc3545";
                         });
                     }, 50);
                 };
@@ -372,63 +329,45 @@
             let expectedNotes = [];
             for (let entry of currentVoiceEntries) {
                 if (entry && entry.Notes) {
-                    for (let note of entry.Notes) {
-                        if (note.Pitch) expectedNotes.push(note.Pitch.getHalfTone() + 12);
-                    }
+                    for (let note of entry.Notes) { if (note.Pitch) expectedNotes.push(note.Pitch.getHalfTone() + 12); }
                 }
             }
 
             if (expectedNotes.includes(midiNote)) {
                 correctHits++; updateScoreUI();
-                
-                let oldText = document.getElementById('noteDisplay').innerText;
-                document.getElementById('noteDisplay').innerText = "Perfect!";
-                document.getElementById('noteDisplay').style.color = "#28a745";
-                setTimeout(() => { 
-                    if(document.getElementById('noteDisplay').innerText === "Perfect!") {
-                        document.getElementById('noteDisplay').style.color = inkColor; 
-                        document.getElementById('noteDisplay').innerText = oldText;
-                    }
-                }, 300);
-
-                osmd.cursor.next();
-                skipRests();
+                let oldText = document.getElementById('noteDisplay').innerText; document.getElementById('noteDisplay').innerText = "Perfect!"; document.getElementById('noteDisplay').style.color = "#28a745";
+                setTimeout(() => { if(document.getElementById('noteDisplay').innerText === "Perfect!") { document.getElementById('noteDisplay').style.color = inkColor; document.getElementById('noteDisplay').innerText = oldText; } }, 300);
+                osmd.cursor.next(); skipRests();
 
                 if (osmd.cursor.Iterator.EndReached) {
-                    let totalAttempts = correctHits + mistakesMade;
-                    let finalAccuracy = totalAttempts === 0 ? 100 : Math.round((correctHits / totalAttempts) * 100);
-                    document.getElementById('noteDisplay').innerText = `Song Complete! Grade: ${finalAccuracy}%`;
-                    document.getElementById('noteDisplay').style.color = inkColor;
+                    let totalAttempts = correctHits + mistakesMade; let finalAccuracy = totalAttempts === 0 ? 100 : Math.round((correctHits / totalAttempts) * 100);
+                    document.getElementById('noteDisplay').innerText = `Song Complete! Grade: ${finalAccuracy}%`; document.getElementById('noteDisplay').style.color = inkColor;
                 }
             } else {
                 mistakesMade++; updateScoreUI();
-                
-                let oldText = document.getElementById('noteDisplay').innerText;
-                document.getElementById('noteDisplay').innerText = "Oops!";
-                document.getElementById('noteDisplay').style.color = "#dc3545";
-                setTimeout(() => { 
-                    if(document.getElementById('noteDisplay').innerText === "Oops!") {
-                        document.getElementById('noteDisplay').style.color = inkColor; 
-                        document.getElementById('noteDisplay').innerText = oldText;
-                    }
-                }, 300);
+                let oldText = document.getElementById('noteDisplay').innerText; document.getElementById('noteDisplay').innerText = "Oops!"; document.getElementById('noteDisplay').style.color = "#dc3545";
+                setTimeout(() => { if(document.getElementById('noteDisplay').innerText === "Oops!") { document.getElementById('noteDisplay').style.color = inkColor; document.getElementById('noteDisplay').innerText = oldText; } }, 300);
             }
         }
 
         function applyInkColor(context) { context.setFillStyle(inkColor); context.setStrokeStyle(inkColor); }
 
+        // --- Grand Staff Drawing Engine ---
         function drawEmptyStaff() {
-            const staffDiv = document.getElementById("staff");
-            staffDiv.innerHTML = "";
+            const staffDiv = document.getElementById("staff"); staffDiv.innerHTML = "";
             const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG);
-            renderer.resize(200, 200);
-            const context = renderer.getContext();
-            applyInkColor(context);
-            const stave = new VF.Stave(10, 40, 150);
-            stave.addClef("treble").addKeySignature(currentKey).setContext(context).draw();
+            renderer.resize(200, 250); 
+            const context = renderer.getContext(); applyInkColor(context);
+            
+            const topStave = new VF.Stave(10, 40, 150).addClef("treble").addKeySignature(currentKey).setContext(context).draw();
+            const bottomStave = new VF.Stave(10, 140, 150).addClef("bass").addKeySignature(currentKey).setContext(context).draw();
+            
+            new VF.StaveConnector(topStave, bottomStave).setType(3).setContext(context).draw(); 
+            new VF.StaveConnector(topStave, bottomStave).setType(1).setContext(context).draw(); 
         }
         drawEmptyStaff();
 
+        // --- Legato Overlap Fix Logic ---
         function getMIDIMessage(midiMessage) {
             if (inputSource !== 'midi') return;
             
@@ -441,11 +380,16 @@
                     handlePracticeMidi(note); 
                 } else {
                     activeMidiNotes.add(note);
-                    if (chordRenderTimer) clearTimeout(chordRenderTimer);
-                    chordRenderTimer = setTimeout(() => {
-                        let notesArray = Array.from(activeMidiNotes).sort((a, b) => a - b);
-                        registerNotesAndDraw(notesArray);
-                    }, 40); 
+                    strikeNotes.add(note); 
+                    
+                    if (!strikeTimer) {
+                        strikeTimer = setTimeout(() => {
+                            let notesArray = Array.from(strikeNotes).sort((a, b) => a - b);
+                            registerNotesAndDraw(notesArray);
+                            strikeNotes.clear(); 
+                            strikeTimer = null;
+                        }, 40); 
+                    }
                 }
             }
             
@@ -460,23 +404,16 @@
         document.getElementById('menuToggle').addEventListener('click', () => { document.getElementById('mainMenu').classList.toggle('open'); });
 
         document.querySelectorAll('.bg-swatch').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                let color = e.target.getAttribute('data-color'); document.body.style.backgroundColor = color; document.getElementById('bgColorPicker').value = color;
-            });
+            btn.addEventListener('click', (e) => { let color = e.target.getAttribute('data-color'); document.body.style.backgroundColor = color; document.getElementById('bgColorPicker').value = color; });
         });
         document.getElementById('bgColorPicker').addEventListener('input', (e) => { document.body.style.backgroundColor = e.target.value; });
 
         document.querySelectorAll('.ink-swatch').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                inkColor = e.target.getAttribute('data-color'); document.getElementById('noteDisplay').style.color = inkColor; renderStaff(); 
-            });
+            btn.addEventListener('click', (e) => { inkColor = e.target.getAttribute('data-color'); document.getElementById('noteDisplay').style.color = inkColor; renderStaff(); });
         });
         document.getElementById('inkColorPicker').addEventListener('input', (e) => { inkColor = e.target.value; document.getElementById('noteDisplay').style.color = inkColor; renderStaff(); });
 
-        document.getElementById('keySelect').addEventListener('change', (e) => {
-            currentKey = e.target.value; let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"]; currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp; document.getElementById('clearBtn').click(); 
-        });
-
+        document.getElementById('keySelect').addEventListener('change', (e) => { currentKey = e.target.value; let flatKeys = ["F", "Bb", "Eb", "Ab", "Db"]; currentNoteStrings = flatKeys.includes(currentKey) ? notesFlat : notesSharp; document.getElementById('clearBtn').click(); });
         document.getElementById('bpmSlider').addEventListener('input', (e) => { targetBPM = parseInt(e.target.value); document.getElementById('bpmLabel').innerText = targetBPM; });
         document.getElementById('quantSelect').addEventListener('change', (e) => { minDurationBeats = parseFloat(e.target.value); });
         
@@ -492,9 +429,7 @@
             document.getElementById('clearBtn').click(); 
         });
 
-        document.getElementById('instrumentToggle').addEventListener('click', (e) => {
-            isVoiceMode = !isVoiceMode; e.target.innerText = isVoiceMode ? "Input: Voice" : "Input: Piano"; e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; pitchBuffer = []; 
-        });
+        document.getElementById('instrumentToggle').addEventListener('click', (e) => { isVoiceMode = !isVoiceMode; e.target.innerText = isVoiceMode ? "Input: Voice" : "Input: Piano"; e.target.style.backgroundColor = isVoiceMode ? "#17a2b8" : "#e83e8c"; pitchBuffer = []; });
 
         document.getElementById('sourceToggle').addEventListener('click', async (e) => {
             if (inputSource === 'mic') {
@@ -504,6 +439,7 @@
                     else {
                         let deviceNames = [];
                         for (let input of midiAccess.inputs.values()) { deviceNames.push(input.name || "Unknown Keyboard"); input.onmidimessage = getMIDIMessage; }
+                        alert("Success! Connected to: " + deviceNames.join(", "));
                     }
                     inputSource = 'midi'; e.target.innerText = "Source: MIDI"; e.target.style.backgroundColor = "#8e44ad"; 
                     document.getElementById('sliderContainer').style.display = 'none'; document.getElementById('instrumentToggle').style.display = 'none';
@@ -516,10 +452,7 @@
         });
 
         document.getElementById('volSlider').addEventListener('input', (e) => { volumeThreshold = parseFloat(e.target.value); document.getElementById('volLabel').innerText = volumeThreshold.toFixed(2); });
-
-        document.getElementById('pdfBtn').addEventListener('click', () => {
-            const element = document.getElementById('staff'); const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } }; html2pdf().set(opt).from(element).save();
-        });
+        document.getElementById('pdfBtn').addEventListener('click', () => { const element = document.getElementById('staff'); const opt = { margin: 0.5, filename: 'piano-transcription.pdf', image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter', orientation: 'landscape' } }; html2pdf().set(opt).from(element).save(); });
 
         document.getElementById('saveBtn').addEventListener('click', () => {
             if(notesHistory.length === 0) { alert("The staff is empty! Play some notes before saving."); return; }
@@ -569,19 +502,35 @@
             if (noteAccidental !== sigAccidental) return noteAccidental; return null; 
         }
 
+        // --- Splits Notes into Treble and Bass Hands ---
         function registerNotesAndDraw(notesArray) {
             let validNotes = notesArray.filter(n => n >= 21 && n <= 108); if (validNotes.length === 0) return;
-            let vfKeys = []; let displayNames = []; let accidentals = [];
+            
+            let trebleKeys = [], bassKeys = [];
+            let trebleAcc = [], bassAcc = [];
+            let displayNames = [];
+            
             validNotes.forEach(note => {
                 let noteName = currentNoteStrings[note % 12]; let octave = Math.floor(note / 12) - 1; 
-                vfKeys.push(noteName.toLowerCase() + "/" + octave); displayNames.push(noteName + octave); accidentals.push(getAccidental(noteName, currentKey)); 
+                displayNames.push(noteName + octave);
+                let vfKey = noteName.toLowerCase() + "/" + octave;
+                let acc = getAccidental(noteName, currentKey);
+                
+                if (note >= 60) { trebleKeys.push(vfKey); trebleAcc.push(acc); } 
+                else { bassKeys.push(vfKey); bassAcc.push(acc); }
             });
-            document.getElementById('noteDisplay').innerText = displayNames.join(" + "); let chordID = vfKeys.join("|"); 
+            
+            let isTrebleRest = trebleKeys.length === 0; let isBassRest = bassKeys.length === 0;
+            if (isTrebleRest) trebleKeys = ["b/4"]; if (isBassRest) bassKeys = ["d/3"];
+            
+            document.getElementById('noteDisplay').innerText = displayNames.join(" + "); 
+            let chordID = validNotes.join("|"); 
                 
             if (activeNoteName !== chordID) {
                 activeNoteName = chordID; activeNoteStartTime = Date.now();
-                let lowestOctave = Math.floor(validNotes[0] / 12) - 1; const clef = lowestOctave >= 4 ? "treble" : "bass"; let initialDur = calculateVexFlowDuration(0); 
-                let newNoteData = { keys: vfKeys, clef: clef, accidentals: accidentals, duration: initialDur, midiNotes: validNotes };
+                let initialDur = calculateVexFlowDuration(0); 
+                
+                let newNoteData = { trebleKeys, bassKeys, trebleAcc, bassAcc, isTrebleRest, isBassRest, duration: initialDur, midiNotes: validNotes };
                 if (layoutMode === 'single') { notesHistory = [newNoteData]; } else { notesHistory.push(newNoteData); }
                 activeNoteIndex = notesHistory.length - 1; renderStaff();
             } else {
@@ -590,36 +539,82 @@
             }
         }
 
+        // --- VexFlow Formatting for 2 Voices Simultaneously ---
         function renderStaff() {
             if (notesHistory.length === 0) return;
             const staffDiv = document.getElementById("staff"); staffDiv.innerHTML = ""; 
+            
             if (layoutMode === 'single') {
-                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(200, 200); const context = renderer.getContext(); applyInkColor(context);
-                let data = notesHistory[0]; const stave = new VF.Stave(10, 40, 150); stave.addClef(data.clef).addKeySignature(currentKey).setContext(context).draw();
-                let vfNote = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: data.clef }); vfNote.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
-                data.accidentals.forEach((acc, idx) => { if (acc) vfNote.addModifier(new VF.Accidental(acc), idx); });
-                const voice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false); voice.addTickables([vfNote]); new VF.Formatter().joinVoices([voice]).format([voice], 100); voice.draw(context, stave);
+                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(200, 250); const context = renderer.getContext(); applyInkColor(context);
+                
+                const topStave = new VF.Stave(10, 40, 150).addClef("treble").addKeySignature(currentKey).setContext(context).draw();
+                const bottomStave = new VF.Stave(10, 140, 150).addClef("bass").addKeySignature(currentKey).setContext(context).draw();
+                new VF.StaveConnector(topStave, bottomStave).setType(3).setContext(context).draw();
+                new VF.StaveConnector(topStave, bottomStave).setType(1).setContext(context).draw();
+                
+                let data = notesHistory[0]; 
+                
+                let tNote = new VF.StaveNote({ keys: data.trebleKeys, duration: data.isTrebleRest ? data.duration + "r" : data.duration, clef: "treble" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                if(!data.isTrebleRest) data.trebleAcc.forEach((acc, idx) => { if (acc) tNote.addModifier(new VF.Accidental(acc), idx); });
+                
+                let bNote = new VF.StaveNote({ keys: data.bassKeys, duration: data.isBassRest ? data.duration + "r" : data.duration, clef: "bass" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                if(!data.isBassRest) data.bassAcc.forEach((acc, idx) => { if (acc) bNote.addModifier(new VF.Accidental(acc), idx); });
+
+                const tVoice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false).addTickables([tNote]); 
+                const bVoice = new VF.Voice({ num_beats: 1, beat_value: 4 }).setStrict(false).addTickables([bNote]); 
+                
+                new VF.Formatter().joinVoices([tVoice, bVoice]).format([tVoice, bVoice], 100); 
+                tVoice.draw(context, topStave); bVoice.draw(context, bottomStave);
+                
             } else if (layoutMode === 'scroll') {
-                let dynamicWidth = Math.max(300, notesHistory.length * 55 + 50); const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(dynamicWidth, 200); const context = renderer.getContext(); applyInkColor(context);
-                let lineClef = notesHistory[0].clef; let stave = new VF.Stave(10, 40, dynamicWidth - 20); stave.addClef(lineClef).addKeySignature(currentKey).setContext(context).draw();
-                let voiceNotes = notesHistory.map(data => {
-                    let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef }); vfN.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
-                    data.accidentals.forEach((acc, idx) => { if (acc) vfN.addModifier(new VF.Accidental(acc), idx); }); return vfN;
+                let dynamicWidth = Math.max(300, notesHistory.length * 55 + 50); const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(dynamicWidth, 250); const context = renderer.getContext(); applyInkColor(context);
+                
+                const topStave = new VF.Stave(10, 40, dynamicWidth - 20).addClef("treble").addKeySignature(currentKey).setContext(context).draw();
+                const bottomStave = new VF.Stave(10, 140, dynamicWidth - 20).addClef("bass").addKeySignature(currentKey).setContext(context).draw();
+                new VF.StaveConnector(topStave, bottomStave).setType(3).setContext(context).draw();
+                new VF.StaveConnector(topStave, bottomStave).setType(1).setContext(context).draw();
+
+                let tNotes = [], bNotes = [];
+                notesHistory.forEach(data => {
+                    let tN = new VF.StaveNote({ keys: data.trebleKeys, duration: data.isTrebleRest ? data.duration + "r" : data.duration, clef: "treble" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                    if(!data.isTrebleRest) data.trebleAcc.forEach((acc, idx) => { if (acc) tN.addModifier(new VF.Accidental(acc), idx); }); tNotes.push(tN);
+                    
+                    let bN = new VF.StaveNote({ keys: data.bassKeys, duration: data.isBassRest ? data.duration + "r" : data.duration, clef: "bass" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                    if(!data.isBassRest) data.bassAcc.forEach((acc, idx) => { if (acc) bN.addModifier(new VF.Accidental(acc), idx); }); bNotes.push(bN);
                 });
-                const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false); voice.addTickables(voiceNotes); new VF.Formatter().joinVoices([voice]).format([voice], dynamicWidth - 80); voice.draw(context, stave);
+
+                const tVoice = new VF.Voice({ num_beats: tNotes.length, beat_value: 4 }).setStrict(false).addTickables(tNotes); 
+                const bVoice = new VF.Voice({ num_beats: bNotes.length, beat_value: 4 }).setStrict(false).addTickables(bNotes); 
+                new VF.Formatter().joinVoices([tVoice, bVoice]).format([tVoice, bVoice], dynamicWidth - 80); 
+                tVoice.draw(context, topStave); bVoice.draw(context, bottomStave);
                 const wrapper = document.getElementById("staffWrapper"); wrapper.scrollLeft = wrapper.scrollWidth;
+                
             } else {
                 let renderHistory = [...notesHistory]; if (renderHistory.length > NOTES_PER_LINE * LINES_PER_PAGE) { renderHistory = [ renderHistory[renderHistory.length - 1] ]; notesHistory = renderHistory; activeNoteIndex = 0; }
-                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(400, LINES_PER_PAGE * 120 + 40); const context = renderer.getContext(); applyInkColor(context);
+                const renderer = new VF.Renderer(staffDiv, VF.Renderer.Backends.SVG); renderer.resize(400, LINES_PER_PAGE * 200 + 40); const context = renderer.getContext(); applyInkColor(context);
+                
                 for (let i = 0; i < LINES_PER_PAGE; i++) {
                     let startIndex = i * NOTES_PER_LINE; if (startIndex >= renderHistory.length) break;
-                    let lineNotesData = renderHistory.slice(startIndex, startIndex + NOTES_PER_LINE); let lineClef = lineNotesData[0].clef; 
-                    let stave = new VF.Stave(10, 40 + (i * 120), 350); stave.addClef(lineClef).addKeySignature(currentKey).setContext(context).draw();
-                    let voiceNotes = lineNotesData.map(data => {
-                        let vfN = new VF.StaveNote({ keys: data.keys, duration: data.duration, clef: lineClef }); vfN.setStyle({fillStyle: inkColor, strokeStyle: inkColor});
-                        data.accidentals.forEach((acc, idx) => { if (acc) vfN.addModifier(new VF.Accidental(acc), idx); }); return vfN;
+                    let lineNotesData = renderHistory.slice(startIndex, startIndex + NOTES_PER_LINE); let yOffset = i * 200;
+                    
+                    const topStave = new VF.Stave(10, 40 + yOffset, 350).addClef("treble").addKeySignature(currentKey).setContext(context).draw();
+                    const bottomStave = new VF.Stave(10, 140 + yOffset, 350).addClef("bass").addKeySignature(currentKey).setContext(context).draw();
+                    new VF.StaveConnector(topStave, bottomStave).setType(3).setContext(context).draw();
+                    new VF.StaveConnector(topStave, bottomStave).setType(1).setContext(context).draw();
+                    
+                    let tNotes = [], bNotes = [];
+                    lineNotesData.forEach(data => {
+                        let tN = new VF.StaveNote({ keys: data.trebleKeys, duration: data.isTrebleRest ? data.duration + "r" : data.duration, clef: "treble" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                        if(!data.isTrebleRest) data.trebleAcc.forEach((acc, idx) => { if (acc) tN.addModifier(new VF.Accidental(acc), idx); }); tNotes.push(tN);
+                        
+                        let bN = new VF.StaveNote({ keys: data.bassKeys, duration: data.isBassRest ? data.duration + "r" : data.duration, clef: "bass" }).setStyle({fillStyle: inkColor, strokeStyle: inkColor});
+                        if(!data.isBassRest) data.bassAcc.forEach((acc, idx) => { if (acc) bN.addModifier(new VF.Accidental(acc), idx); }); bNotes.push(bN);
                     });
-                    const voice = new VF.Voice({ num_beats: voiceNotes.length, beat_value: 4 }).setStrict(false); voice.addTickables(voiceNotes); new VF.Formatter().joinVoices([voice]).format([voice], 300); voice.draw(context, stave);
+
+                    const tVoice = new VF.Voice({ num_beats: tNotes.length, beat_value: 4 }).setStrict(false).addTickables(tNotes); 
+                    const bVoice = new VF.Voice({ num_beats: bNotes.length, beat_value: 4 }).setStrict(false).addTickables(bNotes); 
+                    new VF.Formatter().joinVoices([tVoice, bVoice]).format([tVoice, bVoice], 300); 
+                    tVoice.draw(context, topStave); bVoice.draw(context, bottomStave);
                 }
             }
         }
